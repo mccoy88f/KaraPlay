@@ -1,0 +1,65 @@
+version: '3.9'
+
+services:
+  frontend:
+    build: ./frontend
+    container_name: karaoke-frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - api
+
+  api:
+    build: ./backend
+    container_name: karaoke-api
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgresql://karaoke:password@db:5432/karaokedb
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: ${JWT_SECRET:-changeme_in_production}
+      SMTP_HOST: ${SMTP_HOST:-smtp.example.com}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM: ${SMTP_FROM:-karaoke@example.com}
+      STORAGE_PATH: /app/storage
+      ADMIN_TOKEN: ${ADMIN_TOKEN:-admin_secret_token}
+      NODE_ENV: production
+    volumes:
+      - karaoke-storage:/app/storage
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  db:
+    image: postgres:16-alpine
+    container_name: karaoke-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: karaoke
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: karaokedb
+    volumes:
+      - karaoke-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U karaoke -d karaokedb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: karaoke-redis
+    restart: unless-stopped
+    volumes:
+      - karaoke-redis-data:/data
+
+volumes:
+  karaoke-storage:
+  karaoke-pgdata:
+  karaoke-redis-data:

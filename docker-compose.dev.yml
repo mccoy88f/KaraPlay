@@ -1,0 +1,83 @@
+version: '3.9'
+
+services:
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.dev
+    container_name: karaoke-api-dev
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgresql://karaoke:password@db:5432/karaokedb
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: dev_secret_key
+      SMTP_HOST: mailhog
+      SMTP_PORT: 1025
+      SMTP_USER: ""
+      SMTP_PASS: ""
+      SMTP_FROM: karaoke@localhost
+      STORAGE_PATH: /app/storage
+      ADMIN_TOKEN: admin123
+      NODE_ENV: development
+    volumes:
+      - ./backend/src:/app/src
+      - karaoke-storage-dev:/app/storage
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    container_name: karaoke-frontend-dev
+    restart: unless-stopped
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_API_URL: http://localhost:3000
+      VITE_WS_URL: http://localhost:3000
+    volumes:
+      - ./frontend/src:/app/src
+    depends_on:
+      - api
+
+  db:
+    image: postgres:16-alpine
+    container_name: karaoke-db-dev
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: karaoke
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: karaokedb
+    volumes:
+      - karaoke-pgdata-dev:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U karaoke -d karaokedb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: karaoke-redis-dev
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+
+  mailhog:
+    image: mailhog/mailhog
+    container_name: karaoke-mailhog
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+
+volumes:
+  karaoke-storage-dev:
+  karaoke-pgdata-dev:
