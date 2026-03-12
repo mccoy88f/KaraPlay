@@ -1,0 +1,76 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * { box-sizing: border-box; }
+  body {
+    background-color: #0a0a0f;
+    color: #e2e8f0;
+    font-family: system-ui, -apple-system, sans-serif;
+    overflow-x: hidden;
+  }
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: #111118; }
+  ::-webkit-scrollbar-thumb { background: #2d2d44; border-radius: 3px; }
+}
+
+@layer components {
+  .btn-primary {
+    @apply bg-brand-600 hover:bg-brand-700 text-white font-semibold py-2 px-4 rounded-lg
+           transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed
+           active:scale-95;
+  }
+  .btn-secondary {
+    @apply bg-dark-600 hover:bg-dark-500 text-gray-200 font-semibold py-2 px-4 rounded-lg
+           transition-all duration-200 active:scale-95 border border-dark-500;
+  }
+  .card {
+    @apply bg-dark-700 border border-dark-500 rounded-xl p-4;
+  }
+  .input {
+    @apply bg-dark-600 border border-dark-500 text-white rounded-lg px-3 py-2 w-full
+           focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent
+           placeholder-gray-500;
+  }
+  .badge-midi {
+    @apply bg-yellow-500/20 text-yellow-300 text-xs font-bold px-2 py-0.5 rounded-full;
+  }
+  .badge-youtube {
+    @apply bg-red-500/20 text-red-300 text-xs font-bold px-2 py-0.5 rounded-full;
+  }
+}
+
+/* Karaoke lyrics animation */
+.lyric-word {
+  transition: all 0.15s ease;
+}
+.lyric-word.active {
+  color: #a78bfa;
+  text-shadow: 0 0 20px rgba(167, 139, 250, 0.6);
+}
+.lyric-word.done {
+  color: #7c3aed;
+}
+
+/* Comment overlay */
+.comment-bubble {
+  animation: slideUpFade 4s ease-out forwards;
+}
+@keyframes slideUpFade {
+  0% { transform: translateY(0); opacity: 1; }
+  70% { opacity: 1; }
+  100% { transform: translateY(-80px); opacity: 0; }
+}
+
+/* Confetti */
+.confetti-piece {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  animation: confettiFall linear forwards;
+}
+@keyframes confettiFall {
+  0% { transform: translateY(-20px) rotate(0deg); opacity: 1; }
+  100% { transform: translateY(100vh) rotate(720deg); opacity: 0; }
+}

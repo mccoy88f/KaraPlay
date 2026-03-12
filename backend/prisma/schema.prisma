@@ -1,0 +1,161 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String        @id @default(cuid())
+  nickname      String
+  email         String?       @unique
+  emailVerified Boolean       @default(false)
+  phone         String?
+  marketingOk   Boolean       @default(false)
+  createdAt     DateTime      @default(now())
+  sessionToken  String?       @unique
+
+  bookings      Booking[]
+  votes         Vote[]
+  comments      Comment[]
+  performances  Performance[]
+  leaderboard   Leaderboard?
+}
+
+model OtpCode {
+  id        String   @id @default(cuid())
+  email     String
+  code      String
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+model Event {
+  id          String      @id @default(cuid())
+  name        String
+  location    String
+  date        DateTime
+  status      EventStatus @default(DRAFT)
+  joinCode    String      @unique
+  hostId      String
+  createdAt   DateTime    @default(now())
+
+  bookings     Booking[]
+  performances Performance[]
+}
+
+enum EventStatus {
+  DRAFT
+  OPEN
+  LIVE
+  ENDED
+}
+
+model Song {
+  id          String     @id @default(cuid())
+  title       String
+  artist      String
+  source      SongSource
+  midiPath    String?
+  lrcPath     String?
+  mp3Path     String?
+  duration    Int?
+  language    String?
+  tags        String[]
+  createdAt   DateTime   @default(now())
+
+  bookings    Booking[]
+}
+
+enum SongSource {
+  MIDI
+  YOUTUBE
+}
+
+model Booking {
+  id          String        @id @default(cuid())
+  eventId     String
+  userId      String
+  songId      String?
+  ytUrl       String?
+  ytTitle     String?
+  ytLrcFound  Boolean?
+  position    Int
+  status      BookingStatus @default(PENDING)
+  adminNote   String?
+  createdAt   DateTime      @default(now())
+
+  event       Event    @relation(fields: [eventId], references: [id])
+  user        User     @relation(fields: [userId], references: [id])
+  song        Song?    @relation(fields: [songId], references: [id])
+  performance Performance?
+}
+
+enum BookingStatus {
+  PENDING
+  APPROVED
+  PROCESSING
+  READY
+  PERFORMING
+  DONE
+  SKIPPED
+  REJECTED
+}
+
+model Performance {
+  id              String    @id @default(cuid())
+  eventId         String
+  bookingId       String    @unique
+  userId          String
+  startedAt       DateTime?
+  endedAt         DateTime?
+  scoreTotal      Float?
+  votesAvg        Float?
+  commentsCount   Int       @default(0)
+  bonusEngagement Float?
+  createdAt       DateTime  @default(now())
+
+  event    Event    @relation(fields: [eventId], references: [id])
+  booking  Booking  @relation(fields: [bookingId], references: [id])
+  user     User     @relation(fields: [userId], references: [id])
+  votes    Vote[]
+  comments Comment[]
+}
+
+model Vote {
+  id            String      @id @default(cuid())
+  performanceId String
+  userId        String
+  value         Int
+  createdAt     DateTime    @default(now())
+
+  performance   Performance @relation(fields: [performanceId], references: [id])
+  user          User        @relation(fields: [userId], references: [id])
+
+  @@unique([performanceId, userId])
+}
+
+model Comment {
+  id            String      @id @default(cuid())
+  performanceId String
+  userId        String
+  text          String      @db.VarChar(120)
+  emoji         String?
+  createdAt     DateTime    @default(now())
+
+  performance   Performance @relation(fields: [performanceId], references: [id])
+  user          User        @relation(fields: [userId], references: [id])
+}
+
+model Leaderboard {
+  userId       String   @id
+  totalScore   Float    @default(0)
+  performances Int      @default(0)
+  bestScore    Float?
+  updatedAt    DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+}
