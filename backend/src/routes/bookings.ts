@@ -57,6 +57,7 @@ export async function registerBookingRoutes(fastify: FastifyInstance): Promise<v
     return reply.send({
       live: {
         performance: { id: booking.performance.id },
+        booking: { id: booking.id },
         song: {
           id: s.id,
           title: s.title,

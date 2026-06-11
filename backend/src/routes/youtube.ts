@@ -8,7 +8,8 @@ import {
   getDefaultYoutubeCookiesPath,
   resolveYoutubeCookiesPath,
 } from "../lib/storage.js";
-import { previewUrl } from "../services/ytdlp.service.js";
+import { previewUrl, searchYoutube } from "../services/ytdlp.service.js";
+import { requireJwt } from "../middleware/jwt.js";
 import { fetchLrcFromLrclib } from "../services/lrclib.service.js";
 import { prisma } from "../lib/prisma.js";
 import {
@@ -21,6 +22,26 @@ const previewSchema = z.object({
 });
 
 export async function registerYoutubeRoutes(fastify: FastifyInstance): Promise<void> {
+  /** Ricerca brani su YouTube per il pubblico (richiede join alla serata). */
+  fastify.get<{ Querystring: { q?: string; limit?: string } }>(
+    "/youtube/search",
+    { preHandler: [requireJwt] },
+    async (request, reply) => {
+      const q = request.query.q?.trim();
+      if (!q || q.length < 2) {
+        return reply.code(400).send({ error: "Parametro q troppo corto (min 2 caratteri)" });
+      }
+      const limit = request.query.limit ? Number(request.query.limit) : 8;
+      try {
+        const results = await searchYoutube(q, Number.isFinite(limit) ? limit : 8);
+        return reply.send({ results });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        return reply.code(502).send({ error: msg });
+      }
+    }
+  );
+
   fastify.post("/youtube/preview", async (request, reply) => {
     const parsed = previewSchema.safeParse(request.body);
     if (!parsed.success) {

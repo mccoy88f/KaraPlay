@@ -1,9 +1,11 @@
 import type { SoundfontBankId } from "../lib/soundfontBanks";
-import { SOUNDFONT_BANKS } from "../lib/soundfontBanks";
+import { SOUNDFONT_BANKS, isSf2BankId, sf2BankId, sf2BankMeta } from "../lib/soundfontBanks";
 
 type Props = {
   value: SoundfontBankId;
   onChange: (id: SoundfontBankId) => void;
+  /** File .sf2/.sf3 caricati sul server (mostrati come banchi aggiuntivi). */
+  sf2Files?: string[];
   id?: string;
   className?: string;
   /** Etichetta sopra il select */
@@ -14,6 +16,7 @@ type Props = {
 export function SoundfontSelect({
   value,
   onChange,
+  sf2Files = [],
   id = "karaoke-soundfont",
   className = "",
   label = "Banco sonoro (SF2 / GM)",
@@ -36,11 +39,25 @@ export function SoundfontSelect({
             : "w-full rounded-xl border border-zinc-700 bg-zinc-950 px-4 py-3 text-sm text-zinc-100 shadow-inner outline-none ring-fuchsia-500/30 focus:ring-2"
         }
       >
-        {SOUNDFONT_BANKS.map((b) => (
-          <option key={b.id} value={b.id}>
-            {b.label} — {b.description}
-          </option>
-        ))}
+        <optgroup label="Banchi GM pre-renderizzati (mp3)">
+          {SOUNDFONT_BANKS.map((b) => (
+            <option key={b.id} value={b.id}>
+              {b.label} — {b.description}
+            </option>
+          ))}
+        </optgroup>
+        {(sf2Files.length > 0 || isSf2BankId(value)) && (
+          <optgroup label="SoundFont caricati (.sf2)">
+            {sf2Files.map((f) => (
+              <option key={f} value={sf2BankId(f)}>
+                {sf2BankMeta(sf2BankId(f)).label}
+              </option>
+            ))}
+            {isSf2BankId(value) && !sf2Files.includes(sf2BankMeta(value).sf2File ?? "") && (
+              <option value={value}>{sf2BankMeta(value).label} — file mancante sul server</option>
+            )}
+          </optgroup>
+        )}
       </select>
     </div>
   );

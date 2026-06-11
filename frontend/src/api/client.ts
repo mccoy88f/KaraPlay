@@ -72,6 +72,7 @@ export async function apiGetQueue(eventId: string) {
 
 export type LivePerformancePayload = {
   performance: { id: string };
+  booking?: { id: string };
   song: {
     id: string;
     title: string;
@@ -122,6 +123,45 @@ export async function apiBookMidi(eventId: string, songId: string): Promise<void
       Authorization: `Bearer ${token}`,
     },
     body: JSON.stringify({ songId }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error((data as { error?: string }).error ?? "Prenotazione fallita");
+  }
+}
+
+export type YoutubeSearchResult = {
+  id: string;
+  url: string;
+  title: string;
+  channel: string;
+  duration: number | null;
+  thumbnail: string | null;
+};
+
+export async function apiSearchYoutube(q: string): Promise<{ results: YoutubeSearchResult[] }> {
+  const token = getStoredToken();
+  if (!token) throw new Error("Sessione scaduta: entra di nuovo");
+  const res = await fetch(`${base}/api/youtube/search?q=${encodeURIComponent(q.trim())}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error((data as { error?: string }).error ?? "Ricerca YouTube non disponibile");
+  }
+  return data as { results: YoutubeSearchResult[] };
+}
+
+export async function apiBookYoutube(eventId: string, ytUrl: string, ytTitle?: string): Promise<void> {
+  const token = getStoredToken();
+  if (!token) throw new Error("Sessione scaduta: entra di nuovo");
+  const res = await fetch(`${base}/api/events/${encodeURIComponent(eventId)}/bookings`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ ytUrl, ...(ytTitle ? { ytTitle } : {}) }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {

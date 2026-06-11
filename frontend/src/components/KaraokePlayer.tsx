@@ -2,12 +2,33 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Midi } from "@tonejs/midi";
 import * as Tone from "tone";
 import Soundfont from "soundfont-player";
+import { Sequencer, WorkletSynthesizer } from "spessasynth_lib";
+import spessaWorkletUrl from "spessasynth_lib/dist/spessasynth_processor.min.js?url";
 import { currentLrcIndex, parseLrc, type LrcLine } from "../lib/lrc";
+import { LyricsPanel } from "./LyricsPanel";
 import { gleitzNameForPatch } from "../lib/gmPatchToGleitz";
 import { getSoundfontBank } from "../lib/soundfontBanks";
 import type { SoundfontBankId } from "../lib/soundfontBanks";
 
 const base = import.meta.env.VITE_API_URL ?? "";
+
+/** I file .sf2 possono superare i 100MB: una sola fetch per sessione, condivisa tra i brani. */
+const sf2Cache = new Map<string, Promise<ArrayBuffer>>();
+
+function fetchSf2(file: string): Promise<ArrayBuffer> {
+  const cached = sf2Cache.get(file);
+  if (cached) return cached;
+  const p = (async () => {
+    const res = await fetch(`${base}/api/media/sf2/${encodeURIComponent(file)}`);
+    if (!res.ok) {
+      throw new Error("SoundFont non presente sul server: caricalo da /admin → Coda live.");
+    }
+    return res.arrayBuffer();
+  })();
+  p.catch(() => sf2Cache.delete(file));
+  sf2Cache.set(file, p);
+  return p;
+}
 
 /** Chiamare sincronamente dall’handler onClick/onPointerDown prima di qualsiasi await (policy Chrome). */
 function primeAudioFromUserGesture(): void {
@@ -58,6 +79,9 @@ export function KaraokePlayer({ songId, title, artist, lrcPath, soundfontBankId,
   const rafRef = useRef(0);
   const t0Ref = useRef(0);
   const acRef = useRef<AudioContext | null>(null);
+  const midiBufRef = useRef<ArrayBuffer | null>(null);
+  /** Sorgente del tempo di trasporto (per LRC): impostata dal motore di playback attivo. */
+  const timeSourceRef = useRef<(() => number) | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -68,6 +92,7 @@ export function KaraokePlayer({ songId, title, artist, lrcPath, soundfontBankId,
         if (!res.ok) throw new Error("MIDI non trovato");
         const buf = await res.arrayBuffer();
         if (cancelled) return;
+        midiBufRef.current = buf;
         setMidi(new Midi(buf));
       } catch (e) {
         if (!cancelled) setLoadError(e instanceof Error ? e.message : "Errore MIDI");
@@ -97,7 +122,61 @@ export function KaraokePlayer({ songId, title, artist, lrcPath, soundfontBankId,
     };
   }, [lrcUrl]);
 
-  const startPlayback = useCallback(async () => {
+  /** Motore SF2: sintesi completa via spessasynth (batteria GM, program change, pitch bend). */
+  const startSf2Playback = useCallback(async () => {
+    const midiBuf = midiBufRef.current;
+    const sf2File = bank.sf2File;
+    if (!midi || !midiBuf || !sf2File) return;
+    disposeRef.current?.();
+    disposeRef.current = null;
+
+    const ac = new AudioContext();
+    setLoadingSf(true);
+    try {
+      await ac.resume();
+      await ac.audioWorklet.addModule(spessaWorkletUrl);
+      const synth = new WorkletSynthesizer(ac);
+      synth.connect(ac.destination);
+      // .slice(0): il worker può trasferire il buffer, la cache deve restare valida.
+      const sfBuf = await fetchSf2(sf2File);
+      await synth.soundBankManager.addSoundBank(sfBuf.slice(0), "main");
+      await synth.isReady;
+
+      // skipToFirstNoteOn falso: il tempo deve restare allineato ai timestamp LRC.
+      const seq = new Sequencer(synth, { skipToFirstNoteOn: false });
+      seq.loopCount = 0;
+      seq.loadNewSongList([{ binary: midiBuf.slice(0), fileName: `${title}.mid` }]);
+      seq.eventHandler.addEvent("songEnded", "karaoke-player-end", () => {
+        setPlaying(false);
+        setTransportSec(0);
+      });
+      seq.play();
+
+      timeSourceRef.current = () => Math.max(0, seq.currentHighResolutionTime);
+      setLoadingSf(false);
+      setPlaying(true);
+
+      disposeRef.current = () => {
+        try {
+          seq.pause();
+        } catch {
+          /* già fermo */
+        }
+        try {
+          synth.destroy();
+        } catch {
+          /* già distrutto */
+        }
+        void ac.close().catch(() => {});
+      };
+    } catch (e) {
+      setLoadingSf(false);
+      setLoadError(e instanceof Error ? e.message : "Errore caricamento SoundFont");
+      void ac.close().catch(() => {});
+    }
+  }, [midi, bank.sf2File, title]);
+
+  const startGleitzPlayback = useCallback(async () => {
     if (!midi) return;
     disposeRef.current?.();
     disposeRef.current = null;
@@ -192,6 +271,7 @@ export function KaraokePlayer({ songId, title, artist, lrcPath, soundfontBankId,
     }
 
     t0Ref.current = Number.isFinite(songZeroAbs) ? songZeroAbs : t0;
+    timeSourceRef.current = () => Math.max(0, ac.currentTime - t0Ref.current);
 
     const endAt = Math.max(0.5, midi.duration);
     const endTimer = window.setTimeout(() => {
@@ -215,6 +295,14 @@ export function KaraokePlayer({ songId, title, artist, lrcPath, soundfontBankId,
     };
   }, [midi, bank.gleitzFolder, base]);
 
+  const startPlayback = useCallback(async () => {
+    if (bank.kind === "sf2") {
+      await startSf2Playback();
+    } else {
+      await startGleitzPlayback();
+    }
+  }, [bank.kind, startSf2Playback, startGleitzPlayback]);
+
   useEffect(() => {
     return () => {
       disposeRef.current?.();
@@ -227,10 +315,10 @@ export function KaraokePlayer({ songId, title, artist, lrcPath, soundfontBankId,
       setTransportSec(0);
       return;
     }
-    const ac = acRef.current;
-    if (!ac) return;
+    const source = timeSourceRef.current;
+    if (!source) return;
     const tick = () => {
-      setTransportSec(Math.max(0, ac.currentTime - t0Ref.current));
+      setTransportSec(source());
       rafRef.current = requestAnimationFrame(tick);
     };
     rafRef.current = requestAnimationFrame(tick);
@@ -238,7 +326,6 @@ export function KaraokePlayer({ songId, title, artist, lrcPath, soundfontBankId,
   }, [playing]);
 
   const idx = useMemo(() => currentLrcIndex(lrcLines, transportSec), [lrcLines, transportSec]);
-  const idxShow = idx < 0 ? 0 : idx;
 
   return (
     <div className="flex w-full max-w-5xl flex-col items-center gap-8">
@@ -279,34 +366,12 @@ export function KaraokePlayer({ songId, title, artist, lrcPath, soundfontBankId,
         </div>
       )}
 
-      <div className="w-full rounded-2xl border border-zinc-800 bg-zinc-950/80 px-6 py-10 text-left shadow-inner shadow-black/40">
-        {lrcLines.length > 0 ? (
-          <div className="space-y-6">
-            {lrcLines[idxShow - 1] && (
-              <p className="text-xl text-zinc-600 line-through decoration-zinc-700 md:text-2xl">
-                {lrcLines[idxShow - 1].text}
-              </p>
-            )}
-            <p className="text-3xl font-semibold leading-tight text-fuchsia-100 drop-shadow-[0_0_20px_rgba(232,121,249,0.25)] md:text-5xl">
-              {lrcLines[idxShow]?.text ?? "…"}
-            </p>
-            {lrcLines[idxShow + 1] && (
-              <p className="text-xl text-zinc-500 md:text-2xl">{lrcLines[idxShow + 1].text}</p>
-            )}
-          </div>
-        ) : (
-          <div className="space-y-3 text-center">
-            <p className="text-lg text-zinc-400">
-              <span className="font-semibold text-zinc-200">{title}</span>
-            </p>
-            <p className="text-sm text-zinc-500">
-              Il file MIDI non contiene testo cantabile: servono parole in un file{" "}
-              <strong className="text-zinc-400">.lrc</strong> caricato dall&apos;admin insieme al MIDI. Senza LRC
-              sentirai solo la base strumentale dopo &quot;Avvia karaoke&quot;.
-            </p>
-          </div>
-        )}
-      </div>
+      <LyricsPanel
+        lines={lrcLines}
+        index={idx}
+        title={title}
+        noLyricsHint='Il file MIDI non contiene testo cantabile: servono parole in un file .lrc caricato dall&apos;admin insieme al MIDI. Senza LRC sentirai solo la base strumentale dopo "Avvia karaoke".'
+      />
     </div>
   );
 }

@@ -73,6 +73,63 @@ export async function previewUrl(url: string): Promise<VideoMeta> {
   };
 }
 
+export type YoutubeSearchResult = {
+  id: string;
+  url: string;
+  title: string;
+  channel: string;
+  duration: number | null;
+  thumbnail: string | null;
+};
+
+/**
+ * Ricerca su YouTube (yt-dlp ytsearch). --flat-playlist evita di risolvere ogni video: veloce,
+ * ma la durata può mancare per alcuni risultati.
+ */
+export async function searchYoutube(query: string, limit = 8): Promise<YoutubeSearchResult[]> {
+  const n = Math.min(Math.max(Math.trunc(limit), 1), 15);
+  const args = [
+    "--dump-json",
+    "--flat-playlist",
+    "--no-warnings",
+    ...cookiesArgs(),
+    `ytsearch${n}:${query}`,
+  ];
+  const { stdout, stderr, code } = await runYtDlp(args);
+  if (code !== 0) {
+    throw new Error(stderr.trim() || `yt-dlp search fallita (codice ${code})`);
+  }
+  const results: YoutubeSearchResult[] = [];
+  for (const line of stdout.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    let j: {
+      id?: string;
+      title?: string;
+      url?: string;
+      duration?: number | null;
+      channel?: string;
+      uploader?: string;
+      thumbnails?: { url?: string }[];
+    };
+    try {
+      j = JSON.parse(trimmed);
+    } catch {
+      continue;
+    }
+    if (!j.id) continue;
+    results.push({
+      id: j.id,
+      url: j.url ?? `https://www.youtube.com/watch?v=${j.id}`,
+      title: j.title ?? "Senza titolo",
+      channel: j.channel ?? j.uploader ?? "",
+      duration: typeof j.duration === "number" ? Math.round(j.duration) : null,
+      thumbnail: j.thumbnails?.[0]?.url ?? `https://i.ytimg.com/vi/${j.id}/mqdefault.jpg`,
+    });
+  }
+  return results;
+}
+
 export type DownloadProgress = { percent: number | null; line: string };
 
 /**

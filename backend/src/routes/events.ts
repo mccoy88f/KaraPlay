@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
 import { requireAdmin } from "../middleware/admin.js";
+import { isValidSoundfontBankId } from "../lib/soundfontBanks.js";
 import type { EventStatus } from "@prisma/client";
 
 function randomJoinCode(): string {
@@ -15,13 +16,14 @@ const createEventSchema = z.object({
   joinCode: z.string().min(4).max(32).optional(),
 });
 
-const soundfontBankIds = ["fluid_r3", "musyng_kite", "fatboy"] as const;
-
 const updateEventSchema = z.object({
   name: z.string().min(1).max(200).optional(),
   location: z.string().min(1).max(200).optional(),
   date: z.string().datetime().optional(),
-  soundfontBankId: z.enum(soundfontBankIds).optional(),
+  soundfontBankId: z
+    .string()
+    .refine(isValidSoundfontBankId, "Banco sonoro non valido (gleitz o sf2:<file>)")
+    .optional(),
 });
 
 const statusSchema = z.object({

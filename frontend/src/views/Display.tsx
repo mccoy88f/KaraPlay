@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { io, type Socket } from "socket.io-client";
 import { KaraokePlayer } from "../components/KaraokePlayer";
+import { YoutubePlayer } from "../components/YoutubePlayer";
 import { apiGetLivePerformance, apiGetQueue, getStoredEvent } from "../api/client";
 import type { SoundfontBankId } from "../lib/soundfontBanks";
 import { getSoundfontBank } from "../lib/soundfontBanks";
@@ -17,6 +18,7 @@ type SongPayload = {
 
 type PerfPayload = {
   performance: { id: string };
+  booking?: { id: string } | null;
   song: SongPayload | null;
   user: { nickname: string };
 };
@@ -51,6 +53,7 @@ export function Display() {
         if (liveNow) {
           setLive({
             performance: liveNow.performance,
+            booking: liveNow.booking ?? null,
             song: liveNow.song,
             user: liveNow.user,
           });
@@ -161,6 +164,15 @@ export function Display() {
                 lrcPath={live.song.lrcPath}
                 soundfontBankId={sfBank}
               />
+            ) : live.song?.source === "YOUTUBE" && live.booking?.id ? (
+              <YoutubePlayer
+                key={live.performance.id}
+                bookingId={live.booking.id}
+                songId={live.song.id}
+                title={live.song.title}
+                artist={live.song.artist}
+                lrcPath={live.song.lrcPath}
+              />
             ) : (
               <div className="flex max-w-4xl flex-col items-center gap-6">
                 <h1 className="font-display text-4xl font-bold text-white md:text-6xl">
@@ -168,7 +180,9 @@ export function Display() {
                 </h1>
                 {live.song && <p className="text-xl text-zinc-400">{live.song.artist}</p>}
                 {!live.song && (
-                  <p className="text-sm text-zinc-500">Testo sincronizzato in arrivo nella prossima fase</p>
+                  <p className="text-sm text-zinc-500">
+                    Brano non ancora elaborato: l&apos;host deve avviare il download da /admin.
+                  </p>
                 )}
               </div>
             )}

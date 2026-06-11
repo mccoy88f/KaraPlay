@@ -30,6 +30,11 @@ export function resolveYoutubeCookiesPath(): string | null {
   return null;
 }
 
+/** Cartella dei file SoundFont (.sf2/.sf3) caricati dall'admin. */
+export function getSf2Dir(): string {
+  return path.join(getStorageRoot(), "soundfonts", "sf2");
+}
+
 export async function ensureStorageLayout(): Promise<void> {
   const root = getStorageRoot();
   await mkdir(path.join(root, "yt"), { recursive: true });
@@ -37,4 +42,5 @@ export async function ensureStorageLayout(): Promise<void> {
   await mkdir(path.join(root, "cookies"), { recursive: true });
   await mkdir(path.join(root, "midi"), { recursive: true });
   await mkdir(path.join(root, "soundfonts"), { recursive: true });
+  await mkdir(getSf2Dir(), { recursive: true });
 }
