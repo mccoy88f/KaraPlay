@@ -1,0 +1,11 @@
+# Override per sviluppo locale: monta il codice e usa nodemon (vedi README)
+services:
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.dev
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+      - karaoke-storage:/app/storage
+    command: npm run dev

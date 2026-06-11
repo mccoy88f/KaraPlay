@@ -1,0 +1,16 @@
+node_modules
+dist
+.env
+*.log
+.DS_Store
+frontend/dist
+backend/dist
+storage/soundfonts/
+storage/midi/*
+!storage/midi/.gitkeep
+storage/lrc/*
+!storage/lrc/.gitkeep
+storage/yt/*
+!storage/yt/.gitkeep
+storage/cookies/*
+!storage/cookies/.gitkeep
