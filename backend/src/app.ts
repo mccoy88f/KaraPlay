@@ -14,6 +14,9 @@ import { registerSoundfontAdminRoutes } from "./routes/soundfont-admin.js";
 import { registerTestRoutes } from "./routes/test.js";
 import { registerAdminQueueRoutes } from "./routes/admin-queue.js";
 import { registerMidiDebugRoutes } from "./routes/midi-debug.js";
+import { registerVoteRoutes } from "./routes/votes.js";
+import { registerCommentRoutes } from "./routes/comments.js";
+import { registerLeaderboardRoutes } from "./routes/leaderboard.js";
 import type { JwtPayload } from "./types/jwt.js";
 
 declare module "@fastify/jwt" {
@@ -54,6 +57,9 @@ export async function buildApp() {
   await app.register(registerSoundfontAdminRoutes, { prefix: "/api" });
   await app.register(registerTestRoutes, { prefix: "/api" });
   await app.register(registerMidiDebugRoutes, { prefix: "/api" });
+  await app.register(registerVoteRoutes, { prefix: "/api" });
+  await app.register(registerCommentRoutes, { prefix: "/api" });
+  await app.register(registerLeaderboardRoutes, { prefix: "/api" });
 
   return app;
 }

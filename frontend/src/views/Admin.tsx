@@ -1,5 +1,6 @@
 import { startTransition, useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { EventsSection } from "../components/admin/EventsSection";
 import { LiveQueueSection } from "../components/admin/LiveQueueSection";
 import { MidiCatalogSection } from "../components/admin/MidiCatalogSection";
 import { MidiDebugSection } from "../components/admin/MidiDebugSection";
@@ -76,6 +77,7 @@ export function Admin() {
 
   const nav = [
     { href: "#accesso", label: "Accesso" },
+    { href: "#events", label: "Serate" },
     { href: "#catalog", label: "Catalogo MIDI" },
     { href: "#queue", label: "Coda live" },
     { href: "#midi-debug", label: "Debug MIDI" },
@@ -120,6 +122,10 @@ export function Admin() {
               aggiungeremo la registrazione / login come amministratori con email e password.
             </p>
           </section>
+
+          <div id="events" className="scroll-mt-24">
+            <EventsSection authHeader={authHeader} />
+          </div>
 
           <div id="catalog" className="scroll-mt-24">
             <MidiCatalogSection authHeader={authHeader} />

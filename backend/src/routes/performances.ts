@@ -3,6 +3,7 @@ import { prisma } from "../lib/prisma.js";
 import { requireAdmin } from "../middleware/admin.js";
 import { getIo } from "../socket/io.js";
 import { emitQueueUpdate } from "../socket/emit.js";
+import { getEventLeaderboard, recordPerformanceScore } from "../services/leaderboard.service.js";
 
 export async function registerPerformanceRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.get<{ Params: { id: string } }>("/performances/:id", async (request, reply) => {
@@ -117,6 +118,10 @@ export async function registerPerformanceRoutes(fastify: FastifyInstance): Promi
         score: scoreTotal,
       });
       await emitQueueUpdate(perf.eventId);
+
+      await recordPerformanceScore(perf.userId, scoreTotal);
+      const entries = await getEventLeaderboard(perf.eventId);
+      getIo()?.to(`event:${perf.eventId}`).emit("leaderboard:update", { entries });
 
       return reply.send(updated);
     }

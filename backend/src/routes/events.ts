@@ -34,6 +34,45 @@ export async function registerEventRoutes(fastify: FastifyInstance): Promise<voi
   /** Verifica che il token admin coincida con ADMIN_TOKEN (utile da /admin). */
   fastify.get("/admin/ping", { preHandler: [requireAdmin] }, async () => ({ ok: true }));
 
+  /** Info essenziali per id (il display conosce l'eventId, non il PIN). */
+  fastify.get<{ Params: { id: string } }>("/events/by-id/:id", async (request, reply) => {
+    const event = await prisma.event.findUnique({
+      where: { id: request.params.id },
+      select: {
+        id: true,
+        name: true,
+        location: true,
+        date: true,
+        status: true,
+        joinCode: true,
+        soundfontBankId: true,
+      },
+    });
+    if (!event) {
+      return reply.code(404).send({ error: "Serata non trovata" });
+    }
+    return reply.send(event);
+  });
+
+  /** Elenco serate per il pannello admin. */
+  fastify.get("/admin/events", { preHandler: [requireAdmin] }, async (_request, reply) => {
+    const events = await prisma.event.findMany({
+      orderBy: { date: "desc" },
+      take: 50,
+      select: {
+        id: true,
+        name: true,
+        location: true,
+        date: true,
+        status: true,
+        joinCode: true,
+        soundfontBankId: true,
+        _count: { select: { bookings: true, performances: true } },
+      },
+    });
+    return reply.send({ events });
+  });
+
   fastify.get<{ Params: { joinCode: string } }>("/events/:joinCode", async (request, reply) => {
     const { joinCode } = request.params;
     const event = await prisma.event.findUnique({

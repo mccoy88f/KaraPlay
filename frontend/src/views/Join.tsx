@@ -1,11 +1,13 @@
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { apiGetEvent, apiJoin, setStoredEvent, setStoredToken } from "../api/client";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { apiGetEvent, apiJoin, setStoredEvent, setStoredNickname, setStoredToken } from "../api/client";
 
 export function Join() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [nickname, setNickname] = useState("");
-  const [pin, setPin] = useState("");
+  // PIN precompilato dal QR code sul display (/join/enter?pin=...).
+  const [pin, setPin] = useState(() => searchParams.get("pin") ?? "");
   const [preview, setPreview] = useState<{ name: string; location: string } | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -36,6 +38,7 @@ export function Join() {
       const res = await apiJoin(nickname.trim(), pin.trim());
       setStoredToken(res.token);
       setStoredEvent(res.event);
+      setStoredNickname(res.user.nickname);
       navigate("/join", { replace: true, state: { joined: true } });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Errore");

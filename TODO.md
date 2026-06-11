@@ -1,6 +1,7 @@
 # KaraPlay — Correzioni e implementazioni per il completamento
 
-Stato del progetto al 2026-06-11. Le voci spuntate `[x]` sono risolte nel branch corrente;
+Stato del progetto al 2026-06-11 (aggiornato dopo la seconda iterazione: voti, commenti,
+classifica, palco, QR e creazione serate). Le voci spuntate `[x]` sono risolte;
 le voci `[ ]` restano da fare per arrivare a un progetto completo e funzionante su tutto.
 
 ---
@@ -74,27 +75,30 @@ le voci `[ ]` restano da fare per arrivare a un progetto completo e funzionante 
 - [ ] Metadati migliori per i risultati YouTube (durata talvolta assente con `--flat-playlist`).
 - [ ] Limite/risparmio chiamate: cache breve dei risultati di ricerca YouTube lato server.
 
-## 5. Funzionalità previste dalla spec ma assenti (da implementare)
+## 5. Funzionalità previste dalla spec (reimplementate su Fastify + Socket.io + JWT)
 
-Tutte le parti seguenti erano presenti solo come codice legacy rotto e sono state rimosse;
-vanno reimplementate sull'architettura attuale (Fastify + Socket.io + JWT):
-
-- [ ] **Voti del pubblico** (`POST /api/performances/:id/votes`, evento socket `vote:update`,
-  widget VoteMeter su display e UI di voto su /join durante l'esibizione).
-- [ ] **Commenti live** (`POST /api/performances/:id/comments`, evento `comment:new`,
-  overlay commenti sul display, moderazione admin).
-- [ ] **Punteggio e classifica** (calcolo punteggio a fine esibizione — la formula base esiste già
-  in `performances.ts` —, tabella `Leaderboard` aggiornata, endpoint classifica serata/globale,
-  widget classifica su display e tab su /join). I modelli Prisma `Vote`, `Comment`, `Leaderboard`
-  esistono già nello schema.
-- [ ] **Vista palco `/stage`**: oggi è un placeholder. Servono: testo ingrandito sincronizzato,
-  countdown di inizio, prossimo cantante.
-- [ ] **Verifica email/OTP**: il backend espone `/api/auth/request-otp` e `/api/auth/verify-otp`
-  con invio email (SMTP), ma nessuna UI li usa. Aggiungere il flusso nel profilo utente
-  (necessario per il "premio serata" della spec).
-- [ ] **QR code sul display** per il join rapido (componente legacy rimosso, da rifare).
-- [ ] **Pagina admin per la creazione serate**: l'API `POST /api/admin/events` esiste,
-  ma dall'admin UI non si può creare una serata (oggi solo via seed o API).
+- [x] **Voti del pubblico**: `POST/GET /api/performances/:id/votes` (1-10, un voto per utente,
+  niente auto-voto, solo a esibizione in corso), evento socket `vote:update`, slider di voto
+  nel tab Live di /join, media live su display e palco.
+- [x] **Commenti live**: `POST/GET /api/performances/:id/comments` (max 120 caratteri + emoji
+  rapide), evento `comment:new`, overlay commenti sul display (scompaiono dopo ~9s).
+  - [ ] Moderazione admin (muto/kick) ancora da fare.
+- [x] **Punteggio e classifica**: a fine esibizione il punteggio (media voti ×0.8 + bonus
+  commenti ×0.2) aggiorna la tabella `Leaderboard`; endpoint classifica serata
+  (`GET /api/events/:id/leaderboard`), globale (`GET /api/leaderboard/global`) e statistiche
+  personali (`GET /api/users/me/stats`); evento `leaderboard:update`; widget su display
+  (schermata d'attesa) e tab Classifica su /join (serata + storica).
+  - [ ] La classifica storica usa la media semplice; la spec chiede una media pesata
+    sulle esibizioni recenti.
+- [x] **Vista palco `/stage`**: countdown 3-2-1 all'avvio, testo sincronizzato ingrandito
+  (clock condiviso: il display rilancia il tempo del player via socket `transport:tick`,
+  il palco interpola tra i tick), media voti live, prossimi cantanti in attesa.
+- [x] **Verifica email/OTP**: tab Profilo su /join con statistiche personali e flusso
+  email → codice OTP → verifica (richiede SMTP configurato per l'invio reale).
+- [x] **QR code sul display**: nella schermata di attesa, con PIN e link diretto
+  `/join/enter?pin=…` (campo PIN precompilato).
+- [x] **Creazione serate da admin**: sezione "Serate" nel pannello (elenco con PIN/stato/
+  contatori + form di creazione con PIN opzionale); nuova `GET /api/admin/events`.
 
 ## 6. Robustezza e sicurezza
 

@@ -37,6 +37,16 @@ export async function apiGetEvent(joinCode: string) {
 
 const TOKEN_KEY = "karaoke_token";
 const EVENT_KEY = "karaoke_event";
+const NICKNAME_KEY = "karaoke_nickname";
+
+export function setStoredNickname(nickname: string | null) {
+  if (nickname) localStorage.setItem(NICKNAME_KEY, nickname);
+  else localStorage.removeItem(NICKNAME_KEY);
+}
+
+export function getStoredNickname(): string | null {
+  return localStorage.getItem(NICKNAME_KEY);
+}
 
 export function getStoredToken(): string | null {
   return localStorage.getItem(TOKEN_KEY);
@@ -128,6 +138,163 @@ export async function apiBookMidi(eventId: string, songId: string): Promise<void
   if (!res.ok) {
     throw new Error((data as { error?: string }).error ?? "Prenotazione fallita");
   }
+}
+
+export async function apiGetEventById(eventId: string) {
+  const res = await fetch(`${base}/api/events/by-id/${encodeURIComponent(eventId)}`);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error((data as { error?: string }).error ?? "Serata non trovata");
+  }
+  return data as {
+    id: string;
+    name: string;
+    location: string;
+    date: string;
+    status: string;
+    joinCode: string;
+    soundfontBankId?: string;
+  };
+}
+
+export type VoteStats = {
+  avg: number;
+  count: number;
+  distribution: Record<number, number>;
+  myVote?: number | null;
+};
+
+export async function apiVote(performanceId: string, value: number): Promise<VoteStats> {
+  const token = getStoredToken();
+  if (!token) throw new Error("Sessione scaduta: entra di nuovo");
+  const res = await fetch(`${base}/api/performances/${encodeURIComponent(performanceId)}/votes`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ value }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error((data as { error?: string }).error ?? "Voto non registrato");
+  }
+  return data as VoteStats;
+}
+
+export async function apiGetVotes(performanceId: string): Promise<VoteStats> {
+  const token = getStoredToken();
+  const res = await fetch(`${base}/api/performances/${encodeURIComponent(performanceId)}/votes`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error((data as { error?: string }).error ?? "Voti non disponibili");
+  }
+  return data as VoteStats;
+}
+
+export type CommentDto = {
+  id: string;
+  text: string;
+  emoji: string | null;
+  createdAt: string;
+  user: { nickname: string };
+};
+
+export async function apiSendComment(performanceId: string, text: string, emoji?: string): Promise<void> {
+  const token = getStoredToken();
+  if (!token) throw new Error("Sessione scaduta: entra di nuovo");
+  const res = await fetch(`${base}/api/performances/${encodeURIComponent(performanceId)}/comments`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ text, ...(emoji ? { emoji } : {}) }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error((data as { error?: string }).error ?? "Commento non inviato");
+  }
+}
+
+export async function apiGetComments(performanceId: string): Promise<{ comments: CommentDto[] }> {
+  const res = await fetch(`${base}/api/performances/${encodeURIComponent(performanceId)}/comments`);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error((data as { error?: string }).error ?? "Commenti non disponibili");
+  }
+  return data as { comments: CommentDto[] };
+}
+
+export type LeaderboardEntry = {
+  userId: string;
+  nickname: string;
+  avgScore: number;
+  bestScore: number;
+  performances: number;
+};
+
+export async function apiGetEventLeaderboard(eventId: string): Promise<{ entries: LeaderboardEntry[] }> {
+  const res = await fetch(`${base}/api/events/${encodeURIComponent(eventId)}/leaderboard`);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error((data as { error?: string }).error ?? "Classifica non disponibile");
+  }
+  return data as { entries: LeaderboardEntry[] };
+}
+
+export async function apiGetGlobalLeaderboard(): Promise<{ entries: LeaderboardEntry[] }> {
+  const res = await fetch(`${base}/api/leaderboard/global`);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error((data as { error?: string }).error ?? "Classifica non disponibile");
+  }
+  return data as { entries: LeaderboardEntry[] };
+}
+
+export type MyStats = {
+  nickname: string;
+  email: string | null;
+  emailVerified: boolean;
+  performances: number;
+  avgScore: number | null;
+  bestScore: number | null;
+};
+
+export async function apiGetMyStats(): Promise<MyStats> {
+  const token = getStoredToken();
+  if (!token) throw new Error("Sessione scaduta: entra di nuovo");
+  const res = await fetch(`${base}/api/users/me/stats`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error((data as { error?: string }).error ?? "Statistiche non disponibili");
+  }
+  return data as MyStats;
+}
+
+export async function apiRequestOtp(email: string): Promise<void> {
+  const res = await fetch(`${base}/api/auth/request-otp`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error((data as { error?: string }).error ?? "Invio OTP fallito");
+  }
+}
+
+export async function apiVerifyOtp(email: string, code: string): Promise<{ token: string }> {
+  const token = getStoredToken();
+  if (!token) throw new Error("Sessione scaduta: entra di nuovo");
+  const res = await fetch(`${base}/api/auth/verify-otp`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ email, code }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error((data as { error?: string }).error ?? "Verifica fallita");
+  }
+  return data as { token: string };
 }
 
 export type YoutubeSearchResult = {

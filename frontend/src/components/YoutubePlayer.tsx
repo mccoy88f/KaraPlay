@@ -11,10 +11,12 @@ type Props = {
   title: string;
   artist: string;
   lrcPath?: string | null;
+  /** Tempo audio in secondi a ogni frame: il display lo rilancia via socket per /stage. */
+  onTick?: (t: number) => void;
 };
 
 /** Player per i brani YouTube già elaborati: audio opus dal server + testi LRC sincronizzati. */
-export function YoutubePlayer({ bookingId, songId, title, artist, lrcPath }: Props) {
+export function YoutubePlayer({ bookingId, songId, title, artist, lrcPath, onTick }: Props) {
   const audioUrl = `${base}/api/media/yt/${encodeURIComponent(bookingId)}`;
   const lrcUrl = lrcPath ? `${base}/api/media/song/${encodeURIComponent(songId)}/lrc` : null;
 
@@ -47,7 +49,9 @@ export function YoutubePlayer({ bookingId, songId, title, artist, lrcPath }: Pro
   useEffect(() => {
     if (!playing) return;
     const tick = () => {
-      setTimeSec(audioRef.current?.currentTime ?? 0);
+      const t = audioRef.current?.currentTime ?? 0;
+      setTimeSec(t);
+      onTick?.(t);
       rafRef.current = requestAnimationFrame(tick);
     };
     rafRef.current = requestAnimationFrame(tick);
