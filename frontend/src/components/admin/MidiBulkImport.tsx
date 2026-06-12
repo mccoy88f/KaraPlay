@@ -164,7 +164,7 @@ export function MidiBulkImport({ authHeader, existingFileNames, onDone }: Props)
   const errCount = rows.filter((r) => r.status === "errore").length;
 
   return (
-    <div className="mt-8 rounded-xl border border-cyan-500/25 bg-zinc-950/50 p-4 md:p-5">
+    <div className="mt-6 rounded-xl border border-cyan-500/25 bg-zinc-950/50 p-4 md:p-5">
       <h3 className="font-display text-base font-semibold text-white">📦 Importazione MIDI massiva</h3>
       <p className="mt-1 text-sm text-zinc-400">
         Carica uno <strong className="text-zinc-300">zip</strong> con dentro file{" "}

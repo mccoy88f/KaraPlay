@@ -29,6 +29,11 @@ export async function registerSongRoutes(fastify: FastifyInstance): Promise<void
       const q = request.query.q?.trim();
       const limit = Math.min(Math.max(Number.parseInt(request.query.limit ?? "40", 10) || 40, 1), 100);
       const offset = Math.max(Number.parseInt(request.query.offset ?? "0", 10) || 0, 0);
+      const yearQuery = q ? Number.parseInt(q, 10) : Number.NaN;
+      const yearFilter =
+        q && Number.isInteger(yearQuery) && yearQuery >= 1900 && yearQuery <= 2100 && String(yearQuery) === q
+          ? [{ year: yearQuery }]
+          : [];
       const where = {
         source: "MIDI" as const,
         OR: event.adminId ? [{ adminId: event.adminId }, { adminId: null }] : [{ adminId: null }],
@@ -39,6 +44,9 @@ export async function registerSongRoutes(fastify: FastifyInstance): Promise<void
                   OR: [
                     { title: { contains: q, mode: "insensitive" as const } },
                     { artist: { contains: q, mode: "insensitive" as const } },
+                    { fileName: { contains: q, mode: "insensitive" as const } },
+                    { genre: { contains: q, mode: "insensitive" as const } },
+                    ...yearFilter,
                   ],
                 },
               ],

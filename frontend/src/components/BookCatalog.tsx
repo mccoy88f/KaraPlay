@@ -17,6 +17,16 @@ function formatDuration(seconds: number): string {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
+function formatSongMeta(s: SongDto): string {
+  const head = [s.artist, s.year != null ? String(s.year) : null].filter(Boolean).join(" - ");
+  if (s.genre) return head ? `${head} (${s.genre})` : s.genre;
+  return head || "—";
+}
+
+function isAbortError(e: unknown): boolean {
+  return e instanceof DOMException && e.name === "AbortError";
+}
+
 export function BookCatalog() {
   const event = getStoredEvent();
   const [q, setQ] = useState("");
@@ -37,25 +47,44 @@ export function BookCatalog() {
   /** Id del video con l'anteprima aperta (una alla volta). */
   const [ytPreviewId, setYtPreviewId] = useState<string | null>(null);
 
-  const listEndRef = useRef<HTMLLIElement | null>(null);
+  const songsAbortRef = useRef<AbortController | null>(null);
+  const ytAbortRef = useRef<AbortController | null>(null);
+  const songsQueryRef = useRef("");
+  const ytQueryRef = useRef("");
 
   const loadSongs = useCallback(
     async (query: string, offset: number, append: boolean) => {
       if (!event) return;
+      if (append) {
+        if (query !== songsQueryRef.current) return;
+      } else {
+        songsAbortRef.current?.abort();
+        songsAbortRef.current = new AbortController();
+        songsQueryRef.current = query;
+      }
+
+      const signal = append ? undefined : songsAbortRef.current!.signal;
+
       if (append) setSongsLoadingMore(true);
       else setLoading(true);
-      setErr(null);
+      if (!append) setErr(null);
+
       try {
-        const data = await apiSearchSongs(event.id, query || undefined, MIDI_PAGE, offset);
+        const data = await apiSearchSongs(event.id, query || undefined, MIDI_PAGE, offset, signal);
+        if (query !== songsQueryRef.current) return;
         setSongs((prev) => (append ? [...prev, ...data.songs] : data.songs));
         setSongsHasMore(data.hasMore);
       } catch (e) {
+        if (isAbortError(e)) return;
+        if (query !== songsQueryRef.current) return;
         if (!append) setSongs([]);
         setSongsHasMore(false);
         setErr(e instanceof Error ? e.message : "Errore");
       } finally {
-        setLoading(false);
-        setSongsLoadingMore(false);
+        if (query === songsQueryRef.current) {
+          setLoading(false);
+          setSongsLoadingMore(false);
+        }
       }
     },
     [event]
@@ -63,79 +92,80 @@ export function BookCatalog() {
 
   useEffect(() => {
     if (!event) return;
-    const delay = q.trim() ? 300 : 0;
+    const query = q.trim();
+    const delay = query ? 400 : 0;
     const timer = window.setTimeout(() => {
-      void loadSongs(q.trim(), 0, false);
+      void loadSongs(query, 0, false);
     }, delay);
     return () => window.clearTimeout(timer);
   }, [event?.id, q, loadSongs]);
 
-  // i risultati YouTube valgono solo per la ricerca che li ha prodotti
+  // i risultati YouTube valgono solo per la ricerca che li ha prodototti
   const showYt = ytQueryDone !== null && ytQueryDone === q.trim();
 
   async function search(e?: React.FormEvent) {
     e?.preventDefault();
     const query = q.trim();
     if (query.length < 2) return;
+
+    ytAbortRef.current?.abort();
+    ytAbortRef.current = new AbortController();
+    ytQueryRef.current = query;
+    const signal = ytAbortRef.current.signal;
+
     setErr(null);
     setMsg(null);
     setYtSearching(true);
     setYtPreviewId(null);
     try {
-      const data = await apiSearchYoutube(query, YT_PAGE, 0);
+      const data = await apiSearchYoutube(query, YT_PAGE, 0, signal);
+      if (query !== ytQueryRef.current) return;
       setYtResults(data.results);
       setYtHasMore(data.hasMore);
       setYtQueryDone(query);
     } catch (e2) {
+      if (isAbortError(e2)) return;
+      if (query !== ytQueryRef.current) return;
       setErr(e2 instanceof Error ? e2.message : "Ricerca YouTube fallita");
       setYtResults([]);
       setYtHasMore(false);
       setYtQueryDone(query);
     } finally {
-      setYtSearching(false);
+      if (query === ytQueryRef.current) setYtSearching(false);
     }
   }
 
   async function loadMoreSongs() {
     if (!songsHasMore || songsLoadingMore || loading) return;
-    await loadSongs(q.trim(), songs.length, true);
+    await loadSongs(songsQueryRef.current, songs.length, true);
   }
 
   async function loadMoreYoutube() {
     const query = q.trim();
     if (!showYt || !ytHasMore || ytLoadingMore || ytSearching || query.length < 2) return;
+    if (query !== ytQueryRef.current) return;
+
     setYtLoadingMore(true);
     setErr(null);
     try {
       const data = await apiSearchYoutube(query, YT_PAGE, ytResults.length);
+      if (query !== ytQueryRef.current) return;
       setYtResults((prev) => [...prev, ...data.results]);
       setYtHasMore(data.hasMore);
     } catch (e) {
+      if (query !== ytQueryRef.current) return;
       setErr(e instanceof Error ? e.message : "Caricamento risultati fallito");
     } finally {
-      setYtLoadingMore(false);
+      if (query === ytQueryRef.current) setYtLoadingMore(false);
     }
   }
 
-  const autoLoadRef = useRef<() => void>(() => {});
-  autoLoadRef.current = () => {
-    if (songsHasMore && !songsLoadingMore && !loading) void loadMoreSongs();
-    else if (showYt && ytHasMore && !ytLoadingMore && !ytSearching) void loadMoreYoutube();
-  };
-
-  // Scorrimento fino in fondo: carica altri risultati automaticamente
   useEffect(() => {
-    const el = listEndRef.current;
-    if (!el) return;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0]?.isIntersecting) autoLoadRef.current();
-      },
-      { rootMargin: "120px" }
-    );
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [songs.length, ytResults.length, showYt]);
+    return () => {
+      songsAbortRef.current?.abort();
+      ytAbortRef.current?.abort();
+    };
+  }, []);
 
   async function book(song: SongDto) {
     if (!event) return;
@@ -187,7 +217,7 @@ export function BookCatalog() {
       <form className="mt-4 flex gap-2" onSubmit={(e) => void search(e)}>
         <input
           className="min-w-0 flex-1 rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 outline-none ring-fuchsia-500/30 focus:ring-2"
-          placeholder="Titolo o artista…"
+          placeholder="Titolo, artista, file, genere, anno…"
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
@@ -203,8 +233,8 @@ export function BookCatalog() {
       <p className="mt-2 text-xs text-zinc-600">
         Il catalogo <span className="rounded border border-amber-500/40 bg-amber-500/10 px-1 text-amber-200/90">MIDI</span>{" "}
         si filtra mentre scrivi; con <strong className="text-zinc-400">Cerca</strong> arrivano anche i video{" "}
-        <span className="rounded border border-red-500/40 bg-red-500/10 px-1 text-red-200/90">YouTube</span>. Scorri in
-        fondo o usa <strong className="text-zinc-400">Carica altri</strong> per vedere più risultati.
+        <span className="rounded border border-red-500/40 bg-red-500/10 px-1 text-red-200/90">YouTube</span>. Usa{" "}
+        <strong className="text-zinc-400">Carica altri</strong> per pagine aggiuntive.
       </p>
 
       {loading && songs.length === 0 && <p className="mt-3 text-sm text-zinc-500">Caricamento catalogo…</p>}
@@ -221,10 +251,12 @@ export function BookCatalog() {
                   MIDI
                 </span>
               </p>
-              <p className="truncate text-sm text-zinc-400">
-                {s.artist}
-                {s.duration != null && <span className="text-zinc-600"> · {formatDuration(s.duration)}</span>}
-              </p>
+              <p className="truncate text-sm text-zinc-400">{formatSongMeta(s)}</p>
+              {s.fileName && (
+                <p className="truncate text-xs text-zinc-600" title={s.fileName}>
+                  {s.fileName}
+                </p>
+              )}
             </div>
             <MidiPreviewButton songId={s.id} />
             <button
@@ -290,7 +322,6 @@ export function BookCatalog() {
             </li>
           ))}
 
-        <li ref={listEndRef} className="list-none" aria-hidden />
       </ul>
 
       {showLoadMore && (

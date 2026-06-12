@@ -59,9 +59,9 @@ type MidiTrackOption = {
   instrumentName: string;
 };
 
-function formatMuteTrackLabel(t: MidiTrackOption): string {
+function formatMuteChannelLabel(t: MidiTrackOption): string {
   const name = t.name !== "(senza nome)" ? t.name : t.instrumentName;
-  return `🔇 tr. ${t.number} — ${name} (can. ${t.channel}, ${t.noteCount} n.)`;
+  return name ? `Ch.${t.channel} - ${name}` : `Ch.${t.channel}`;
 }
 
 function midiControlSelectClass(active: boolean) {
@@ -142,14 +142,16 @@ function MidiLiveControls({
   const muteOptions =
     tracks.length > 0
       ? tracks
-      : Array.from({ length: 16 }, (_, i) => ({
-          number: i + 1,
-          name: `traccia ${i + 1}`,
-          channel: i + 1,
-          noteCount: 0,
-          isDrum: false,
-          instrumentName: "",
-        }));
+      : Array.from({ length: 15 }, (_, i) => i + 1)
+          .filter((ch) => ch !== 10)
+          .map((ch) => ({
+            number: ch,
+            name: "",
+            channel: ch,
+            noteCount: 0,
+            isDrum: false,
+            instrumentName: "",
+          }));
 
   return (
     <div className={`flex flex-wrap items-center gap-2 ${className}`}>
@@ -162,7 +164,7 @@ function MidiLiveControls({
         <option value="">🎤 voce on</option>
         {muteOptions.map((t) => (
           <option key={t.number} value={t.number}>
-            {tracks.length > 0 ? formatMuteTrackLabel(t) : `🔇 muta tr. ${t.number}`}
+            {formatMuteChannelLabel(t)}
           </option>
         ))}
       </select>
@@ -668,7 +670,7 @@ export function LiveConsole({ authHeader, isSuper }: Props) {
                     <MidiLiveControls
                       song={performing.song}
                       authHeader={authHeader}
-                      muteTitle="Silenzia una traccia del file MIDI (numero traccia, non canale). Effetto sul display entro ~2 s anche senza WebSocket."
+                      muteTitle="Silenzia un canale MIDI (es. Ch.4 voce guida). Effetto sul display entro ~2 s anche senza WebSocket."
                       transposeTitle="Trasposizione in semitoni: ha effetto subito sul display, anche a brano in corso"
                       onMute={(track) => void setMutedTrack(performing.song!.id, track)}
                       onTranspose={(semitones) => void setTransposeSemitones(performing.song!.id, semitones)}
@@ -832,7 +834,7 @@ export function LiveConsole({ authHeader, isSuper }: Props) {
                         song={b.song}
                         className="shrink-0"
                         authHeader={authHeader}
-                        muteTitle="Silenzia una traccia del file MIDI (numero traccia, non canale)"
+                        muteTitle="Silenzia un canale MIDI (es. Ch.4 voce guida)"
                         transposeTitle="Trasposizione in semitoni per tutte le esecuzioni del brano"
                         onMute={(track) => void setMutedTrack(b.song!.id, track)}
                         onTranspose={(semitones) => void setTransposeSemitones(b.song!.id, semitones)}

@@ -1,4 +1,4 @@
-import { startTransition, useCallback, useEffect, useRef, useState } from "react";
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { extractMidiMeta } from "../../lib/midiMeta";
 import { MidiBulkImport } from "./MidiBulkImport";
 
@@ -40,8 +40,25 @@ export function MidiCatalogSection({ authHeader }: Props) {
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [catalogQuery, setCatalogQuery] = useState("");
   /** Ultimi valori precompilati dal file: si sovrascrivono solo se l'utente non li ha toccati. */
   const autoFillRef = useRef<{ title: string; artist: string; year: string }>({ title: "", artist: "", year: "" });
+  const editPanelRef = useRef<HTMLFormElement>(null);
+  const scrollRestoreRef = useRef(0);
+  const rowRefs = useRef<Map<string, HTMLTableRowElement>>(new Map());
+
+  const filteredSongs = useMemo(() => {
+    const q = catalogQuery.trim().toLowerCase();
+    if (!q) return songs;
+    return songs.filter(
+      (s) =>
+        s.title.toLowerCase().includes(q) ||
+        s.artist.toLowerCase().includes(q) ||
+        (s.fileName?.toLowerCase().includes(q) ?? false) ||
+        (s.genre?.toLowerCase().includes(q) ?? false) ||
+        (s.year != null && String(s.year).includes(q))
+    );
+  }, [songs, catalogQuery]);
 
   /** Alla scelta del file, titolo e artista si leggono dai metadati MIDI/.kar (modificabili). */
   async function onMidiPicked(f: File | null) {
@@ -170,7 +187,21 @@ export function MidiCatalogSection({ authHeader }: Props) {
     return () => window.clearTimeout(timer);
   }, [editing, edit.title, edit.artist, edit.genre, edit.year, fetchMetaLookup]);
 
+  function scrollToCatalogRow(songId: string) {
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        const row = rowRefs.current.get(songId);
+        if (row) {
+          row.scrollIntoView({ behavior: "smooth", block: "center" });
+          return;
+        }
+        window.scrollTo({ top: scrollRestoreRef.current, behavior: "smooth" });
+      });
+    });
+  }
+
   function startEdit(s2: SongDto) {
+    scrollRestoreRef.current = window.scrollY;
     setEditing(s2);
     setEdit({
       title: s2.title,
@@ -180,6 +211,20 @@ export function MidiCatalogSection({ authHeader }: Props) {
       language: s2.language ?? "",
     });
   }
+
+  function cancelEdit() {
+    const songId = editing?.id;
+    setEditing(null);
+    if (songId) scrollToCatalogRow(songId);
+  }
+
+  useEffect(() => {
+    if (!editing) return;
+    window.requestAnimationFrame(() => {
+      editPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      editPanelRef.current?.querySelector<HTMLInputElement>("input")?.focus({ preventScroll: true });
+    });
+  }, [editing?.id]);
 
   async function saveEdit(e: React.FormEvent) {
     e.preventDefault();
@@ -205,8 +250,10 @@ export function MidiCatalogSection({ authHeader }: Props) {
         return;
       }
       setMsg(`«${edit.title.trim()}» aggiornato.`);
+      const songId = editing.id;
       setEditing(null);
       await loadSongs();
+      scrollToCatalogRow(songId);
     } finally {
       setEditBusy(false);
     }
@@ -356,61 +403,94 @@ export function MidiCatalogSection({ authHeader }: Props) {
       {msg && <p className="mt-4 text-sm text-emerald-400">{msg}</p>}
       {err && <p className="mt-4 text-sm text-red-400">{err}</p>}
 
-      <div className="mt-8 overflow-x-auto">
-        <table className="w-full text-left text-sm text-zinc-300">
-          <thead>
-            <tr className="border-b border-zinc-800 text-zinc-500">
-              <th className="py-2 pr-4">Titolo</th>
-              <th className="py-2 pr-4">Artista</th>
-              <th className="py-2 pr-4">Anno</th>
-              <th className="py-2 pr-4">Genere</th>
-              <th className="py-2 pr-4">File</th>
-              <th className="py-2 pr-4">LRC</th>
-              <th className="py-2"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {songs.map((s) => (
-              <tr key={s.id} className="border-b border-zinc-800/80">
-                <td className="py-2 pr-4 font-medium text-white">{s.title}</td>
-                <td className="py-2 pr-4">{s.artist}</td>
-                <td className="py-2 pr-4">{s.year ?? "—"}</td>
-                <td className="py-2 pr-4">{s.genre ?? "—"}</td>
-                <td className="max-w-[14rem] truncate py-2 pr-4 font-mono text-xs text-zinc-500" title={s.fileName ?? undefined}>
-                  {s.fileName ?? "—"}
-                </td>
-                <td className="py-2 pr-4">{s.lrcPath ? "sì" : "—"}</td>
-                <td className="py-2">
-                  <button
-                    type="button"
-                    title="Modifica titolo, artista, anno, genere"
-                    onClick={() => startEdit(s)}
-                    className="rounded border border-zinc-700 px-2 py-1 text-xs text-zinc-300 hover:bg-zinc-800"
-                  >
-                    ✏️
-                  </button>
-                </td>
+      <div className="mt-8">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h3 className="font-display text-base font-semibold text-white">Cerca nel catalogo</h3>
+            <p className="mt-1 text-xs text-zinc-500">
+              {songs.length} {songs.length === 1 ? "brano" : "brani"}
+              {catalogQuery.trim() ? ` · ${filteredSongs.length} risultati` : ""}
+            </p>
+          </div>
+          <label className="flex min-w-[min(100%,20rem)] flex-1 flex-col gap-1 text-sm sm:max-w-md">
+            <span className="sr-only">Cerca nel catalogo</span>
+            <input
+              className="kg-input"
+              value={catalogQuery}
+              onChange={(e) => setCatalogQuery(e.target.value)}
+              placeholder="Titolo, artista, file, genere…"
+            />
+          </label>
+        </div>
+
+        <div className="mt-4 overflow-x-auto">
+          <table className="w-full text-left text-sm text-zinc-300">
+            <thead>
+              <tr className="border-b border-zinc-800 text-zinc-500">
+                <th className="py-2 pr-4">Titolo</th>
+                <th className="py-2 pr-4">Artista</th>
+                <th className="py-2 pr-4">Anno</th>
+                <th className="py-2 pr-4">Genere</th>
+                <th className="py-2 pr-4">File</th>
+                <th className="py-2 pr-4">LRC</th>
+                <th className="py-2"></th>
               </tr>
-            ))}
-            {songs.length === 0 && (
-              <tr>
-                <td colSpan={7} className="py-6 text-center text-zinc-500">
-                  Nessuna canzone in catalogo
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {filteredSongs.map((s) => (
+                <tr
+                  key={s.id}
+                  ref={(el) => {
+                    if (el) rowRefs.current.set(s.id, el);
+                    else rowRefs.current.delete(s.id);
+                  }}
+                  className={`border-b border-zinc-800/80 ${editing?.id === s.id ? "bg-fuchsia-500/10" : ""}`}
+                >
+                  <td className="py-2 pr-4 font-medium text-white">{s.title}</td>
+                  <td className="py-2 pr-4">{s.artist}</td>
+                  <td className="py-2 pr-4">{s.year ?? "—"}</td>
+                  <td className="py-2 pr-4">{s.genre ?? "—"}</td>
+                  <td className="max-w-[14rem] truncate py-2 pr-4 font-mono text-xs text-zinc-500" title={s.fileName ?? undefined}>
+                    {s.fileName ?? "—"}
+                  </td>
+                  <td className="py-2 pr-4">{s.lrcPath ? "sì" : "—"}</td>
+                  <td className="py-2">
+                    <button
+                      type="button"
+                      title="Modifica titolo, artista, anno, genere"
+                      onClick={() => startEdit(s)}
+                      className="rounded border border-zinc-700 px-2 py-1 text-xs text-zinc-300 hover:bg-zinc-800"
+                    >
+                      ✏️
+                    </button>
+                  </td>
+                </tr>
+              ))}
+              {songs.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="py-6 text-center text-zinc-500">
+                    Nessuna canzone in catalogo
+                  </td>
+                </tr>
+              )}
+              {songs.length > 0 && filteredSongs.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="py-6 text-center text-zinc-500">
+                    Nessun risultato per «{catalogQuery.trim()}»
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
 
-      <MidiBulkImport
-        authHeader={authHeader}
-        existingFileNames={songs.map((s2) => (s2.fileName ?? "").toLowerCase()).filter(Boolean)}
-        onDone={() => void loadSongs()}
-      />
-
       {editing && (
-        <form onSubmit={(e) => void saveEdit(e)} className="mt-6 rounded-xl border border-fuchsia-500/30 bg-zinc-950/60 p-4">
+        <form
+          ref={editPanelRef}
+          onSubmit={(e) => void saveEdit(e)}
+          className="mt-6 scroll-mt-6 rounded-xl border border-fuchsia-500/30 bg-zinc-950/60 p-4"
+        >
           <p className="text-sm font-medium text-fuchsia-200">Modifica «{editing.title}»</p>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             <label className="flex flex-col gap-1 text-sm">
@@ -438,12 +518,18 @@ export function MidiCatalogSection({ authHeader }: Props) {
             <button type="submit" disabled={editBusy || !edit.title.trim() || !edit.artist.trim()} className="rounded-lg bg-fuchsia-600 px-4 py-2 text-sm font-semibold text-white hover:bg-fuchsia-500 disabled:opacity-40">
               {editBusy ? "Salvo…" : "Salva modifiche"}
             </button>
-            <button type="button" onClick={() => setEditing(null)} className="rounded-lg border border-zinc-700 px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-800">
+            <button type="button" onClick={cancelEdit} className="rounded-lg border border-zinc-700 px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-800">
               Annulla
             </button>
           </div>
         </form>
       )}
+
+      <MidiBulkImport
+        authHeader={authHeader}
+        existingFileNames={songs.map((s2) => (s2.fileName ?? "").toLowerCase()).filter(Boolean)}
+        onDone={() => void loadSongs()}
+      />
     </section>
   );
 }
