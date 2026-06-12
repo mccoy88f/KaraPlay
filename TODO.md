@@ -20,8 +20,9 @@ le voci `[ ]` restano da fare per arrivare a un progetto completo e funzionante 
   (da reimplementare, vedi §5).
 - [x] **Seed duplicato**: rimosso `backend/src/prisma/seed.ts` (legacy, usava un `hostId` inesistente).
   Il seed attivo è `backend/prisma/seed.ts`.
-- [ ] **Redis**: il `docker-compose.yml` avvia un container Redis e passa `REDIS_URL`, ma nessun codice
-  lo usa. Rimuovere il servizio oppure usarlo (es. stato code YouTube / job persistenti).
+- [x] **Redis rimosso**: il container e `REDIS_URL` non erano usati da nessun codice;
+  lo stack ora è frontend + api + postgres. `docker-compose.yml` documentato per
+  l'avvio diretto da Portainer (stack da repository).
 - [ ] **CI**: aggiungere una GitHub Action che esegua `tsc` + build di entrambi i pacchetti per evitare
   regressioni della build.
 

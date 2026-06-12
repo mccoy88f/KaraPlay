@@ -1,7 +1,13 @@
+# KaraPlay — stack di produzione.
+# Avvio locale:      docker compose up -d --build
+# Portainer:         Stacks → Add stack → Repository
+#                    URL del repo, branch "main", compose path "docker-compose.yml".
+#                    Portainer clona il repo e builda le immagini da solo.
+# App su  http://<host>:8080  (pubblico /join, host /admin, schermo /display, palco /stage)
+
 services:
   frontend:
     build: ./frontend
-    container_name: karaoke-frontend
     restart: unless-stopped
     ports:
       - "8080:80"
@@ -10,13 +16,11 @@ services:
 
   api:
     build: ./backend
-    container_name: karaoke-api
     restart: unless-stopped
     ports:
       - "3000:3000"
     environment:
       DATABASE_URL: postgresql://karaoke:password@db:5432/karaokedb
-      REDIS_URL: redis://redis:6379
       JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me}
       ADMIN_TOKEN: ${ADMIN_TOKEN:-dev-admin-token}
       SMTP_HOST: ${SMTP_HOST:-}
@@ -32,12 +36,9 @@ services:
     depends_on:
       db:
         condition: service_healthy
-      redis:
-        condition: service_started
 
   db:
     image: postgres:16-alpine
-    container_name: karaoke-db
     restart: unless-stopped
     environment:
       POSTGRES_USER: karaoke
@@ -51,14 +52,6 @@ services:
       timeout: 5s
       retries: 5
 
-  redis:
-    image: redis:7-alpine
-    container_name: karaoke-redis
-    restart: unless-stopped
-    volumes:
-      - karaoke-redis-data:/data
-
 volumes:
   karaoke-storage:
   karaoke-pgdata:
-  karaoke-redis-data:

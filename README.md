@@ -5,13 +5,25 @@ Web app per serate karaoke gamificate.
 ## Avvio rapido
 
 ```bash
-cp .env.example .env
-# Modifica .env con le tue credenziali SMTP e JWT_SECRET
-
-docker compose up -d
+docker compose up -d --build
 ```
 
-Apri `http://localhost` nel browser.
+Apri `http://localhost:8080` nel browser. Le variabili (JWT_SECRET, SMTP…) sono
+opzionali per provare: hanno default di sviluppo, personalizzale con un file `.env`
+(vedi `.env.example`).
+
+## Avvio con Portainer
+
+Lo stack si avvia direttamente dal repository, senza clonare nulla a mano:
+
+1. **Stacks → Add stack → Repository**
+2. Repository URL: `https://github.com/mccoy88f/KaraPlay`, reference `refs/heads/main`
+3. Compose path: `docker-compose.yml`
+4. (Opzionale) aggiungi le env `JWT_SECRET`, `SMTP_*` nella sezione *Environment variables*
+5. **Deploy the stack** — Portainer builda le immagini di frontend e backend da solo
+
+Al primo avvio il backend applica le migrazioni e il seed (serata demo con PIN
+`000000`). L'app è su `http://<host>:8080`.
 
 ## Interfacce
 
@@ -36,8 +48,8 @@ docker compose -f docker-compose.dev.yml up -d
 ## Stack
 
 - **Frontend**: React + Vite + Tailwind + Tone.js + Socket.io
-- **Backend**: Node.js + Fastify + Prisma + PostgreSQL + Redis
-- **Audio**: MIDI (Tone.js) + YouTube (yt-dlp + ffmpeg)
+- **Backend**: Node.js + Fastify + Prisma + PostgreSQL
+- **Audio**: MIDI (Tone.js / spessasynth SF2) + YouTube (embed o yt-dlp + ffmpeg)
 - **Infra**: Docker Compose + Nginx
 
 ## Configurazione
