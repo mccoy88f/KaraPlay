@@ -78,6 +78,86 @@ export async function registerSongRoutes(fastify: FastifyInstance): Promise<void
     return reply.send(song);
   });
 
+  const editSongSchema = z.object({
+    title: z.string().min(1).max(200).optional(),
+    artist: z.string().min(1).max(200).optional(),
+    year: z.number().int().min(1900).max(2100).nullable().optional(),
+    genre: z.string().max(80).nullable().optional(),
+    language: z.string().max(20).nullable().optional(),
+  });
+
+  /** Modifica dei metadati di un brano del catalogo (MIDI o video). */
+  fastify.put<{ Params: { id: string } }>(
+    "/admin/songs/:id",
+    { preHandler: [requireAdmin] },
+    async (request, reply) => {
+      const parsed = editSongSchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.code(400).send({ error: "Dati non validi" });
+      }
+      const jwt = request.user as JwtPayload;
+      const song = await prisma.song.findUnique({ where: { id: request.params.id } });
+      if (!song) {
+        return reply.code(404).send({ error: "Canzone non trovata" });
+      }
+      if (jwt.role !== "superadmin" && song.adminId !== jwt.sub) {
+        return reply.code(403).send({ error: "Questo brano è di un altro admin" });
+      }
+      const d = parsed.data;
+      const updated = await prisma.song.update({
+        where: { id: song.id },
+        data: {
+          ...(d.title !== undefined ? { title: d.title.trim() } : {}),
+          ...(d.artist !== undefined ? { artist: d.artist.trim() } : {}),
+          ...(d.year !== undefined ? { year: d.year } : {}),
+          ...(d.genre !== undefined ? { genre: d.genre?.trim() || null } : {}),
+          ...(d.language !== undefined ? { language: d.language?.trim() || null } : {}),
+        },
+      });
+      return reply.send(updated);
+    }
+  );
+
+  /**
+   * Genere/anno da iTunes Search (gratuita, senza chiave): il client la usa per
+   * precompilare i campi. Fallisce in modo morbido se la rete non risponde.
+   */
+  fastify.get<{ Querystring: { title?: string; artist?: string } }>(
+    "/admin/songs-meta-lookup",
+    { preHandler: [requireAdmin] },
+    async (request, reply) => {
+      const title = request.query.title?.trim();
+      if (!title) {
+        return reply.code(400).send({ error: "Parametro title obbligatorio" });
+      }
+      const artist = request.query.artist?.trim() ?? "";
+      const term = encodeURIComponent(`${artist} ${title}`.trim());
+      try {
+        const r = await fetch(
+          `https://itunes.apple.com/search?term=${term}&entity=song&limit=1`,
+          { signal: AbortSignal.timeout(6000) }
+        );
+        if (!r.ok) {
+          return reply.code(502).send({ error: `Lookup fallito (${r.status})` });
+        }
+        const j = (await r.json()) as {
+          results?: { primaryGenreName?: string; releaseDate?: string; trackName?: string; artistName?: string }[];
+        };
+        const hit = j.results?.[0];
+        const year = hit?.releaseDate ? Number.parseInt(hit.releaseDate.slice(0, 4), 10) : null;
+        return reply.send({
+          genre: hit?.primaryGenreName ?? null,
+          year: Number.isInteger(year) ? year : null,
+          foundTitle: hit?.trackName ?? null,
+          foundArtist: hit?.artistName ?? null,
+        });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        return reply.code(502).send({ error: `Lookup non disponibile: ${msg}` });
+      }
+    }
+  );
+
   const mutedTrackSchema = z.object({
     track: z.number().int().min(1).max(32).nullable(),
   });
@@ -207,6 +287,7 @@ export async function registerSongRoutes(fastify: FastifyInstance): Promise<void
       let artist = "";
       let language = "";
       let year: number | null = null;
+      let genre: string | null = null;
       let fileName: string | null = null;
       let midiBuf: Buffer | null = null;
       let lrcBuf: Buffer | null = null;
@@ -226,6 +307,10 @@ export async function registerSongRoutes(fastify: FastifyInstance): Promise<void
           if (part.fieldname === "title") title = v;
           if (part.fieldname === "artist") artist = v;
           if (part.fieldname === "language") language = v;
+          if (part.fieldname === "genre") {
+            // genere passato dal client (lookup online in fase di import)
+            if (v) genre = v.slice(0, 80);
+          }
           if (part.fieldname === "year") {
             const n = Number.parseInt(v, 10);
             year = Number.isInteger(n) && n >= 1900 && n <= 2100 ? n : null;
@@ -254,6 +339,7 @@ export async function registerSongRoutes(fastify: FastifyInstance): Promise<void
           duration: null,
           language: language || null,
           year,
+          genre,
           fileName,
           tags: ["upload"],
         },

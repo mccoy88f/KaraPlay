@@ -5,6 +5,37 @@ import type { JwtPayload } from "../types/jwt.js";
 import { emitQueueUpdate } from "../socket/emit.js";
 
 export async function registerAdminBookingRoutes(fastify: FastifyInstance): Promise<void> {
+  /** Rinomina il titolo mostrato per una prenotazione video (e la Song scaricata, se c'è). */
+  fastify.put<{ Params: { id: string }; Body: { ytTitle?: string } }>(
+    "/admin/bookings/:id/title",
+    { preHandler: [requireAdmin] },
+    async (request, reply) => {
+      const title = String((request.body as { ytTitle?: string })?.ytTitle ?? "").trim();
+      if (!title || title.length > 300) {
+        return reply.code(400).send({ error: "Titolo non valido (1-300 caratteri)" });
+      }
+      const booking = await prisma.booking.findUnique({
+        where: { id: request.params.id },
+        include: { song: { select: { id: true, source: true } } },
+      });
+      if (!booking) {
+        return reply.code(404).send({ error: "Prenotazione non trovata" });
+      }
+      if (!(await canManageEvent(request.user as JwtPayload, booking.eventId))) {
+        return reply.code(403).send({ error: "Questa serata è gestita da un altro admin" });
+      }
+      if (!booking.ytUrl) {
+        return reply.code(400).send({ error: "Si rinominano solo le prenotazioni video" });
+      }
+      await prisma.booking.update({ where: { id: booking.id }, data: { ytTitle: title } });
+      if (booking.song && booking.song.source === "YOUTUBE") {
+        await prisma.song.update({ where: { id: booking.song.id }, data: { title } });
+      }
+      await emitQueueUpdate(booking.eventId);
+      return reply.send({ ok: true });
+    }
+  );
+
   /** Bis: duplica una prenotazione già conclusa in fondo alla scaletta. */
   fastify.post<{ Params: { id: string } }>(
     "/admin/bookings/:id/replay",

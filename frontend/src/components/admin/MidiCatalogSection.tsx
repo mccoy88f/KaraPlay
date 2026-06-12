@@ -13,6 +13,8 @@ export type SongDto = {
   duration: number | null;
   fileName?: string | null;
   year?: number | null;
+  genre?: string | null;
+  language?: string | null;
 };
 
 type Props = {
@@ -25,6 +27,12 @@ export function MidiCatalogSection({ authHeader }: Props) {
   const [artist, setArtist] = useState("");
   const [language, setLanguage] = useState("");
   const [year, setYear] = useState("");
+  const [genre, setGenre] = useState("");
+  const [lookupBusy, setLookupBusy] = useState(false);
+  /** Brano in modifica (pannello sotto la tabella). */
+  const [editing, setEditing] = useState<SongDto | null>(null);
+  const [edit, setEdit] = useState({ title: "", artist: "", year: "", genre: "", language: "" });
+  const [editBusy, setEditBusy] = useState(false);
   const [midiFile, setMidiFile] = useState<File | null>(null);
   const [lrcFile, setLrcFile] = useState<File | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
@@ -82,6 +90,77 @@ export function MidiCatalogSection({ authHeader }: Props) {
     });
   }, [loadSongs]);
 
+  /** Genere/anno da iTunes (via backend): precompila senza toccare ciò che l'utente ha scritto. */
+  async function lookupOnline() {
+    if (!title.trim()) return;
+    setLookupBusy(true);
+    setErr(null);
+    try {
+      const qs = `title=${encodeURIComponent(title.trim())}&artist=${encodeURIComponent(artist.trim())}`;
+      const res = await fetch(`${base}/api/admin/songs-meta-lookup?${qs}`, { headers: { ...authHeader() } });
+      const data = (await res.json().catch(() => ({}))) as {
+        genre?: string | null;
+        year?: number | null;
+        error?: string;
+      };
+      if (!res.ok) {
+        setErr(data.error ?? "Lookup non disponibile");
+        return;
+      }
+      if (data.genre && !genre.trim()) setGenre(data.genre);
+      if (data.year && !year.trim()) setYear(String(data.year));
+      setMsg(
+        data.genre || data.year
+          ? `Trovato online: ${[data.genre, data.year].filter(Boolean).join(" · ")}`
+          : "Nessun risultato online per questo brano."
+      );
+    } finally {
+      setLookupBusy(false);
+    }
+  }
+
+  function startEdit(s2: SongDto) {
+    setEditing(s2);
+    setEdit({
+      title: s2.title,
+      artist: s2.artist,
+      year: s2.year != null ? String(s2.year) : "",
+      genre: s2.genre ?? "",
+      language: s2.language ?? "",
+    });
+  }
+
+  async function saveEdit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!editing) return;
+    setEditBusy(true);
+    setErr(null);
+    try {
+      const y = edit.year.trim() ? Number.parseInt(edit.year.trim(), 10) : null;
+      const res = await fetch(`${base}/api/admin/songs/${encodeURIComponent(editing.id)}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", ...authHeader() },
+        body: JSON.stringify({
+          title: edit.title.trim(),
+          artist: edit.artist.trim(),
+          year: Number.isInteger(y) ? y : null,
+          genre: edit.genre.trim() || null,
+          language: edit.language.trim() || null,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setErr((data as { error?: string }).error ?? "Salvataggio fallito");
+        return;
+      }
+      setMsg(`«${edit.title.trim()}» aggiornato.`);
+      setEditing(null);
+      await loadSongs();
+    } finally {
+      setEditBusy(false);
+    }
+  }
+
   async function upload(e: React.FormEvent) {
     e.preventDefault();
     if (!title.trim() || !artist.trim() || !midiFile) {
@@ -96,6 +175,7 @@ export function MidiCatalogSection({ authHeader }: Props) {
     body.append("artist", artist.trim());
     if (language.trim()) body.append("language", language.trim());
     if (year.trim()) body.append("year", year.trim());
+    if (genre.trim()) body.append("genre", genre.trim());
     body.append("midi", midiFile);
     if (lrcFile) body.append("lrc", lrcFile);
     const res = await fetch(`${base}/api/admin/songs/upload`, {
@@ -114,6 +194,7 @@ export function MidiCatalogSection({ authHeader }: Props) {
     setArtist("");
     setLanguage("");
     setYear("");
+    setGenre("");
     autoFillRef.current = { title: "", artist: "", year: "" };
     setMidiFile(null);
     setLrcFile(null);
@@ -172,6 +253,26 @@ export function MidiCatalogSection({ authHeader }: Props) {
             />
           </label>
         </div>
+        <div className="flex flex-wrap items-end gap-3">
+          <label className="flex min-w-48 flex-1 flex-col gap-1 text-sm">
+            <span className="text-zinc-400">Genere (opzionale)</span>
+            <input
+              className="kg-input"
+              value={genre}
+              onChange={(e) => setGenre(e.target.value)}
+              placeholder="es. Pop, Rock…"
+            />
+          </label>
+          <button
+            type="button"
+            disabled={lookupBusy || !title.trim()}
+            onClick={() => void lookupOnline()}
+            title="Cerca genere e anno online (iTunes) in base a titolo e artista"
+            className="rounded-lg border border-cyan-500/40 bg-cyan-500/10 px-4 py-2.5 text-sm text-cyan-100 hover:bg-cyan-500/20 disabled:opacity-40"
+          >
+            {lookupBusy ? "Cerco…" : "✨ Genere/anno online"}
+          </button>
+        </div>
         <div className="flex flex-wrap gap-4">
           <label className="cursor-pointer rounded-lg border border-cyan-500/40 bg-cyan-500/10 px-4 py-2 text-sm font-medium text-cyan-100 hover:bg-cyan-500/20">
             File MIDI (.mid)
@@ -214,8 +315,10 @@ export function MidiCatalogSection({ authHeader }: Props) {
               <th className="py-2 pr-4">Titolo</th>
               <th className="py-2 pr-4">Artista</th>
               <th className="py-2 pr-4">Anno</th>
+              <th className="py-2 pr-4">Genere</th>
               <th className="py-2 pr-4">File</th>
-              <th className="py-2">LRC</th>
+              <th className="py-2 pr-4">LRC</th>
+              <th className="py-2"></th>
             </tr>
           </thead>
           <tbody>
@@ -224,15 +327,26 @@ export function MidiCatalogSection({ authHeader }: Props) {
                 <td className="py-2 pr-4 font-medium text-white">{s.title}</td>
                 <td className="py-2 pr-4">{s.artist}</td>
                 <td className="py-2 pr-4">{s.year ?? "—"}</td>
+                <td className="py-2 pr-4">{s.genre ?? "—"}</td>
                 <td className="max-w-[14rem] truncate py-2 pr-4 font-mono text-xs text-zinc-500" title={s.fileName ?? undefined}>
                   {s.fileName ?? "—"}
                 </td>
-                <td className="py-2">{s.lrcPath ? "sì" : "—"}</td>
+                <td className="py-2 pr-4">{s.lrcPath ? "sì" : "—"}</td>
+                <td className="py-2">
+                  <button
+                    type="button"
+                    title="Modifica titolo, artista, anno, genere"
+                    onClick={() => startEdit(s)}
+                    className="rounded border border-zinc-700 px-2 py-1 text-xs text-zinc-300 hover:bg-zinc-800"
+                  >
+                    ✏️
+                  </button>
+                </td>
               </tr>
             ))}
             {songs.length === 0 && (
               <tr>
-                <td colSpan={5} className="py-6 text-center text-zinc-500">
+                <td colSpan={7} className="py-6 text-center text-zinc-500">
                   Nessuna canzone in catalogo
                 </td>
               </tr>
@@ -240,6 +354,42 @@ export function MidiCatalogSection({ authHeader }: Props) {
           </tbody>
         </table>
       </div>
+
+      {editing && (
+        <form onSubmit={(e) => void saveEdit(e)} className="mt-6 rounded-xl border border-fuchsia-500/30 bg-zinc-950/60 p-4">
+          <p className="text-sm font-medium text-fuchsia-200">Modifica «{editing.title}»</p>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <label className="flex flex-col gap-1 text-sm">
+              <span className="text-zinc-400">Titolo</span>
+              <input className="kg-input" value={edit.title} onChange={(e) => setEdit({ ...edit, title: e.target.value })} required />
+            </label>
+            <label className="flex flex-col gap-1 text-sm">
+              <span className="text-zinc-400">Artista</span>
+              <input className="kg-input" value={edit.artist} onChange={(e) => setEdit({ ...edit, artist: e.target.value })} required />
+            </label>
+            <label className="flex flex-col gap-1 text-sm">
+              <span className="text-zinc-400">Anno</span>
+              <input className="kg-input" value={edit.year} onChange={(e) => setEdit({ ...edit, year: e.target.value })} inputMode="numeric" maxLength={4} />
+            </label>
+            <label className="flex flex-col gap-1 text-sm">
+              <span className="text-zinc-400">Genere</span>
+              <input className="kg-input" value={edit.genre} onChange={(e) => setEdit({ ...edit, genre: e.target.value })} />
+            </label>
+            <label className="flex flex-col gap-1 text-sm">
+              <span className="text-zinc-400">Lingua</span>
+              <input className="kg-input" value={edit.language} onChange={(e) => setEdit({ ...edit, language: e.target.value })} placeholder="it" />
+            </label>
+          </div>
+          <div className="mt-4 flex gap-2">
+            <button type="submit" disabled={editBusy || !edit.title.trim() || !edit.artist.trim()} className="rounded-lg bg-fuchsia-600 px-4 py-2 text-sm font-semibold text-white hover:bg-fuchsia-500 disabled:opacity-40">
+              {editBusy ? "Salvo…" : "Salva modifiche"}
+            </button>
+            <button type="button" onClick={() => setEditing(null)} className="rounded-lg border border-zinc-700 px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-800">
+              Annulla
+            </button>
+          </div>
+        </form>
+      )}
     </section>
   );
 }

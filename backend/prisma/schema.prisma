@@ -102,6 +102,8 @@ model Song {
   fileName  String?
   /** Anno del brano (di solito dal meta-evento copyright del MIDI). */
   year      Int?
+  /** Genere musicale (lookup online o inserito a mano). */
+  genre     String?
 
   admin    AdminUser? @relation(fields: [adminId], references: [id])
   bookings Booking[]

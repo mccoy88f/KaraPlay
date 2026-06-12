@@ -341,6 +341,18 @@ export function LiveConsole({ authHeader, isSuper }: Props) {
     }
   }
 
+  /** Rinomina il titolo mostrato per una prenotazione video. */
+  async function renameVideo(b: QueueBooking) {
+    const t = window.prompt("Titolo da mostrare per questo video:", b.ytTitle ?? "");
+    if (t == null || !t.trim()) return;
+    setMsg(null);
+    const ok = await adminFetch(`/admin/bookings/${b.id}/title`, {
+      method: "PUT",
+      body: JSON.stringify({ ytTitle: t.trim() }),
+    });
+    if (ok) setMsg("Titolo aggiornato.");
+  }
+
   /** Bis: rimette il brano in fondo alla scaletta. */
   async function replay(b: QueueBooking) {
     setMsg(null);
@@ -744,6 +756,16 @@ export function LiveConsole({ authHeader, isSuper }: Props) {
                         onMute={(track) => void setMutedTrack(b.song!.id, track)}
                         onTranspose={(semitones) => void setTransposeSemitones(b.song!.id, semitones)}
                       />
+                    )}
+                    {b.ytUrl && (
+                      <button
+                        type="button"
+                        title="Rinomina il titolo del video"
+                        onClick={() => void renameVideo(b)}
+                        className="rounded border border-zinc-700 px-2 py-2 text-xs text-zinc-300 hover:bg-zinc-800"
+                      >
+                        ✏️
+                      </button>
                     )}
                     {b.ytUrl && b.status === "APPROVED" && !b.song && (
                       <button
