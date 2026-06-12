@@ -192,6 +192,39 @@ export function Display() {
     return () => window.clearInterval(timer);
   }, [comments.length]);
 
+  // Fallback se il WebSocket non consegna mute/tonalità live (proxy senza upgrade, ecc.)
+  useEffect(() => {
+    if (!eventId || !live?.performance?.id) return;
+    let cancelled = false;
+    const syncLiveSongSettings = async () => {
+      try {
+        const { live: liveNow } = await apiGetLivePerformance(eventId);
+        if (cancelled || !liveNow?.song) return;
+        const songNow = liveNow.song;
+        setLive((prev) => {
+          if (!prev || prev.performance.id !== liveNow.performance.id || !prev.song) return prev;
+          const nextMuted = songNow.mutedTrack ?? null;
+          const nextTranspose = songNow.transposeSemitones ?? 0;
+          const prevMuted = prev.song.mutedTrack ?? null;
+          const prevTranspose = prev.song.transposeSemitones ?? 0;
+          if (prevMuted === nextMuted && prevTranspose === nextTranspose) return prev;
+          return {
+            ...prev,
+            song: { ...prev.song, mutedTrack: nextMuted, transposeSemitones: nextTranspose },
+          };
+        });
+      } catch {
+        /* riprova al prossimo tick */
+      }
+    };
+    void syncLiveSongSettings();
+    const timer = window.setInterval(() => void syncLiveSongSettings(), 2000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [eventId, live?.performance?.id]);
+
   useEffect(() => {
     if (!eventId) return;
     const id = eventId;
@@ -248,7 +281,7 @@ export function Display() {
         if (!cancelled) setError(e instanceof Error ? e.message : "Errore coda");
       }
 
-      socket = io(socketUrl, { path: "/socket.io", transports: ["websocket", "polling"] });
+      socket = io(socketUrl, { path: "/socket.io", transports: ["polling", "websocket"] });
       socketRef.current = socket;
       socket.emit("event:join", { eventId: id });
       socket.emit("display:ready");

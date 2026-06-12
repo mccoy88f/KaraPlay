@@ -1,4 +1,4 @@
-import { writeFile } from "node:fs/promises";
+import { writeFile, readFile, access } from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
 import type { FastifyInstance } from "fastify";
@@ -12,6 +12,7 @@ import { requireAdmin } from "../middleware/admin.js";
 import { ensureStorageLayout, getStorageRoot } from "../lib/storage.js";
 import type { JwtPayload } from "../types/jwt.js";
 import { getIo } from "../socket/io.js";
+import { analyzeMidiBuffer } from "../lib/midiDebug.js";
 
 export async function registerSongRoutes(fastify: FastifyInstance): Promise<void> {
   /** Catalogo visto dal pubblico di una serata: i brani MIDI dell'admin che la gestisce. */
@@ -170,6 +171,34 @@ export async function registerSongRoutes(fastify: FastifyInstance): Promise<void
   const transposeSemitonesSchema = z.object({
     semitones: z.number().int().min(-12).max(12),
   });
+
+  /** Tracce del file MIDI (per il selettore mute in console: numero traccia, non canale). */
+  fastify.get<{ Params: { id: string } }>(
+    "/admin/songs/:id/midi-tracks",
+    { preHandler: [requireAdmin] },
+    async (request, reply) => {
+      const jwt = request.user as JwtPayload;
+      const song = await prisma.song.findUnique({ where: { id: request.params.id } });
+      if (!song) {
+        return reply.code(404).send({ error: "Canzone non trovata" });
+      }
+      if (song.source !== "MIDI" || !song.midiPath) {
+        return reply.code(400).send({ error: "Solo i brani MIDI hanno tracce" });
+      }
+      if (jwt.role !== "superadmin" && song.adminId !== jwt.sub) {
+        return reply.code(403).send({ error: "Questo brano è di un altro admin" });
+      }
+      const abs = path.join(getStorageRoot(), song.midiPath);
+      try {
+        await access(abs);
+      } catch {
+        return reply.code(404).send({ error: "File MIDI assente sul disco" });
+      }
+      const buf = await readFile(abs);
+      const { trackOptions } = analyzeMidiBuffer(buf);
+      return reply.send({ tracks: trackOptions });
+    }
+  );
 
   /** Silenzia una traccia del MIDI (voce guida): vale per tutte le esecuzioni del brano. */
   fastify.put<{ Params: { id: string } }>(

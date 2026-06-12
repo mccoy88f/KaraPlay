@@ -14,6 +14,17 @@ const { Midi } = require("@tonejs/midi") as {
   };
 };
 
+export type MidiTrackOption = {
+  /** Numero traccia 1-based (come nel selettore mute della console). */
+  number: number;
+  name: string;
+  /** Canale MIDI 1–16 (10 = batteria GM). */
+  channel: number;
+  noteCount: number;
+  isDrum: boolean;
+  instrumentName: string;
+};
+
 export type MidiTrackDebug = {
   index: number;
   name: string;
@@ -26,9 +37,24 @@ export type MidiTrackDebug = {
   gleitzName: string | null;
 };
 
+/** Tracce riproducibili per il selettore mute (numero traccia, non canale MIDI). */
+export function midiTrackOptionsFromDebug(tracks: MidiTrackDebug[]): MidiTrackOption[] {
+  return tracks
+    .filter((t) => t.noteCount > 0)
+    .map((t) => ({
+      number: t.index + 1,
+      name: t.name,
+      channel: t.channel + 1,
+      noteCount: t.noteCount,
+      isDrum: t.isDrum,
+      instrumentName: t.instrumentName,
+    }));
+}
+
 export type MidiDebugPayload = {
   durationSec: number;
   tracks: MidiTrackDebug[];
+  trackOptions: MidiTrackOption[];
   summary: {
     trackCount: number;
     tracksWithNotes: number;
@@ -100,13 +126,14 @@ export function analyzeMidiBuffer(buf: Buffer): MidiDebugPayload {
       ? `    → ${uniqueGleitzInstrumentsToLoad.join(", ")}`
       : "    → (nessuno — solo percussione sintetica Tone)",
     "",
-    "Dettaglio tracce (canale 1–16; 10 = percussioni → Tone, altri → soundfont gleitz):",
+    "Dettaglio tracce (numero traccia = «muta tr. N» in console; canale 1–16 separato):",
   ];
 
   for (const t of tracks) {
+    const trNum = t.index + 1;
     if (t.noteCount === 0) {
       logLines.push(
-        `  [${t.index}] "${t.name}" | canale ${t.channel + 1} | ${t.isDrum ? "batteria GM" : `GM ${t.instrumentNumber} ${t.instrumentName}`} | 0 note (vuota)`
+        `  tr. ${trNum} "${t.name}" | canale ${t.channel + 1} | ${t.isDrum ? "batteria GM" : `GM ${t.instrumentNumber} ${t.instrumentName}`} | 0 note (vuota)`
       );
       continue;
     }
@@ -114,7 +141,7 @@ export function analyzeMidiBuffer(buf: Buffer): MidiDebugPayload {
       ? "batteria → Tone.PolySynth"
       : `GM ${t.instrumentNumber} ${t.instrumentName} → gleitz "${t.gleitzName}"`;
     logLines.push(
-      `  [${t.index}] "${t.name}" | canale ${t.channel + 1} | ${role} | ${t.noteCount} note`
+      `  tr. ${trNum} "${t.name}" | canale ${t.channel + 1} | ${role} | ${t.noteCount} note`
     );
   }
 
@@ -123,6 +150,7 @@ export function analyzeMidiBuffer(buf: Buffer): MidiDebugPayload {
   return {
     durationSec: midi.duration,
     tracks,
+    trackOptions: midiTrackOptionsFromDebug(tracks),
     summary: {
       trackCount: tracks.length,
       tracksWithNotes: withNotes.length,

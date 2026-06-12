@@ -42,6 +42,17 @@ function sf2ControllerChange(synth: WorkletSynthesizer) {
   return synth.controllerChange.bind(synth) as (ch: number, controller: number, value: number) => void;
 }
 
+function sf2AllNotesOff(synth: WorkletSynthesizer) {
+  const cc = sf2ControllerChange(synth);
+  for (let ch = 0; ch < 16; ch++) {
+    try {
+      cc(ch, 123, 0);
+    } catch {
+      /* canale non disponibile */
+    }
+  }
+}
+
 function applySf2Transpose(synth: WorkletSynthesizer, semitones: number) {
   const cc = sf2ControllerChange(synth);
   const v = Math.max(0, Math.min(127, 64 + Math.round(semitones)));
@@ -192,6 +203,7 @@ export function KaraokePlayer({
       const t = live.seq.currentTime;
       const wasPaused = live.seq.paused;
       const playbackBuf = buildPlaybackMidiBuffer(buf, muted);
+      sf2AllNotesOff(live.synth);
       live.seq.loadNewSongList([{ binary: playbackBuf.slice(0), fileName: `${title}.mid` }]);
       live.seq.currentTime = t;
       if (transposeRef.current !== 0) {
