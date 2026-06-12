@@ -11,11 +11,6 @@ import {
 import { previewUrl, searchYoutube } from "../services/ytdlp.service.js";
 import { requireJwt } from "../middleware/jwt.js";
 import { fetchLrcFromLrclib } from "../services/lrclib.service.js";
-import { prisma } from "../lib/prisma.js";
-import {
-  getYoutubeJobStatus,
-  startYoutubeProcess,
-} from "../services/youtube-process.service.js";
 
 const previewSchema = z.object({
   url: z.string().url(),
@@ -142,42 +137,4 @@ export async function registerYoutubeRoutes(fastify: FastifyInstance): Promise<v
     }
   );
 
-  fastify.post<{ Params: { bookingId: string } }>(
-    "/admin/youtube/process/:bookingId",
-    { preHandler: [requireAdmin] },
-    async (request, reply) => {
-      try {
-        await startYoutubeProcess(request.params.bookingId);
-        return reply.code(202).send({ ok: true, message: "Elaborazione avviata" });
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        return reply.code(400).send({ error: msg });
-      }
-    }
-  );
-
-  fastify.get<{ Params: { bookingId: string } }>(
-    "/admin/youtube/status/:bookingId",
-    { preHandler: [requireAdmin] },
-    async (request, reply) => {
-      const booking = await prisma.booking.findUnique({
-        where: { id: request.params.bookingId },
-        select: {
-          id: true,
-          status: true,
-          ytProcessError: true,
-          ytUrl: true,
-          ytTitle: true,
-        },
-      });
-      if (!booking) {
-        return reply.code(404).send({ error: "Prenotazione non trovata" });
-      }
-      const job = getYoutubeJobStatus(booking.id);
-      return reply.send({
-        booking,
-        job: job ?? null,
-      });
-    }
-  );
 }

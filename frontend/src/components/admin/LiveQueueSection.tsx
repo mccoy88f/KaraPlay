@@ -239,22 +239,7 @@ export function LiveQueueSection({ authHeader }: Props) {
       setErr((data as { error?: string }).error ?? "Operazione fallita");
       return;
     }
-    setMsg(approve ? "Richiesta approvata: ora avvia il download dell'audio." : "Richiesta rifiutata.");
-    await loadQueue();
-  }
-
-  async function processYoutube(bookingId: string) {
-    setErr(null);
-    const res = await fetch(`${base}/api/admin/youtube/process/${encodeURIComponent(bookingId)}`, {
-      method: "POST",
-      headers: { ...authHeader() },
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      setErr((data as { error?: string }).error ?? "Avvio elaborazione fallito");
-      return;
-    }
-    setMsg("Download audio avviato: ricarica la coda tra qualche istante per lo stato READY.");
+    setMsg(approve ? "Richiesta approvata: ora puoi avviarla quando è il suo turno." : "Richiesta rifiutata.");
     await loadQueue();
   }
 
@@ -547,20 +532,7 @@ export function LiveQueueSection({ authHeader }: Props) {
                         </button>
                       </>
                     )}
-                    {b.status === "APPROVED" && b.ytUrl && !b.song && (
-                      <button
-                        type="button"
-                        title="Scarica l'audio con yt-dlp e cerca i testi su LRCLIB"
-                        onClick={() => void processYoutube(b.id)}
-                        className="rounded bg-red-600 px-2 py-1 text-xs text-white hover:bg-red-500"
-                      >
-                        Scarica audio
-                      </button>
-                    )}
-                    {b.status === "PROCESSING" && (
-                      <span className="text-xs text-amber-300/90">download…</span>
-                    )}
-                    {((b.status === "APPROVED" && (!b.ytUrl || Boolean(b.song))) || b.status === "READY") && (
+                    {(b.status === "APPROVED" || b.status === "READY") && (
                       <button
                         type="button"
                         onClick={() => void startBooking(b.id)}

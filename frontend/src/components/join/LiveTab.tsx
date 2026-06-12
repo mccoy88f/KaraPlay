@@ -41,8 +41,8 @@ export function LiveTab({ eventId, userNickname }: { eventId: string; userNickna
         if (now) {
           setLive({
             performanceId: now.performance.id,
-            title: now.song.title,
-            artist: now.song.artist,
+            title: now.song?.title ?? now.booking?.ytTitle ?? "Brano YouTube",
+            artist: now.song?.artist ?? "",
             nickname: now.user.nickname,
           });
           const stats = await apiGetVotes(now.performance.id);

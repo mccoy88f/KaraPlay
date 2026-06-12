@@ -5,6 +5,7 @@ import Soundfont from "soundfont-player";
 import { Sequencer, WorkletSynthesizer } from "spessasynth_lib";
 import spessaWorkletUrl from "spessasynth_lib/dist/spessasynth_processor.min.js?url";
 import { currentLrcIndex, parseLrc, type LrcLine } from "../lib/lrc";
+import { extractMidiLyrics } from "../lib/midiLyrics";
 import { LyricsPanel } from "./LyricsPanel";
 import { gleitzNameForPatch } from "../lib/gmPatchToGleitz";
 import { getSoundfontBank } from "../lib/soundfontBanks";
@@ -73,9 +74,12 @@ export function KaraokePlayer({ songId, title, artist, lrcPath, soundfontBankId,
   const [loadError, setLoadError] = useState<string | null>(null);
   const [midi, setMidi] = useState<Midi | null>(null);
   const [lrcLines, setLrcLines] = useState<LrcLine[]>([]);
+  /** Testi karaoke incorporati nel MIDI (meta FF05/FF01): fallback quando manca il file .lrc. */
+  const [midiLyrics, setMidiLyrics] = useState<LrcLine[]>([]);
   const [playing, setPlaying] = useState(false);
   const [transportSec, setTransportSec] = useState(0);
   const [loadingSf, setLoadingSf] = useState(false);
+  const [sfProgress, setSfProgress] = useState<{ done: number; total: number } | null>(null);
 
   const disposeRef = useRef<(() => void) | null>(null);
   const rafRef = useRef(0);
@@ -95,7 +99,13 @@ export function KaraokePlayer({ songId, title, artist, lrcPath, soundfontBankId,
         const buf = await res.arrayBuffer();
         if (cancelled) return;
         midiBufRef.current = buf;
-        setMidi(new Midi(buf));
+        const parsed = new Midi(buf);
+        setMidi(parsed);
+        try {
+          setMidiLyrics(extractMidiLyrics(buf, parsed));
+        } catch {
+          setMidiLyrics([]);
+        }
       } catch (e) {
         if (!cancelled) setLoadError(e instanceof Error ? e.message : "Errore MIDI");
       }
@@ -200,108 +210,136 @@ export function KaraokePlayer({ songId, title, artist, lrcPath, soundfontBankId,
       return `${root}/api/media/soundfont/${encodeURIComponent(folder)}/${encodeURIComponent(`${name}-${fmt}.js`)}`;
     };
 
-    setLoadingSf(true);
     const players = new Map<string, Awaited<ReturnType<typeof Soundfont.instrument>>>();
-    const loadInst = async (gleitzName: string) => {
-      if (players.has(gleitzName)) return players.get(gleitzName)!;
-      const p = await Soundfont.instrument(ac, gleitzName as Parameters<typeof Soundfont.instrument>[1], {
-        nameToUrl,
-        format: "mp3",
-      });
-      players.set(gleitzName, p);
-      return p;
-    };
 
     const melodicTracks = midi.tracks.filter((t) => t.notes.length > 0 && t.channel !== 9);
     const drumTracks = midi.tracks.filter((t) => t.notes.length > 0 && t.channel === 9);
 
     const neededInstruments = [...new Set(melodicTracks.map((t) => gleitzNameForPatch(t.instrument.number)))];
 
+    setLoadingSf(true);
+    setSfProgress({ done: 0, total: neededInstruments.length });
+    let loaded = 0;
     try {
-      for (const gleitzName of neededInstruments) {
-        await loadInst(gleitzName);
-      }
+      // I file con molte tracce (GM completi) richiedono 10+ strumenti: in parallelo, con progresso.
+      await Promise.all(
+        neededInstruments.map(async (gleitzName) => {
+          const p = await Soundfont.instrument(ac, gleitzName as Parameters<typeof Soundfont.instrument>[1], {
+            nameToUrl,
+            format: "mp3",
+          });
+          players.set(gleitzName, p);
+          loaded += 1;
+          setSfProgress({ done: loaded, total: neededInstruments.length });
+        })
+      );
     } catch (e) {
+      console.error("[karaoke] caricamento soundfont fallito", e);
       setLoadingSf(false);
+      setSfProgress(null);
       setLoadError(e instanceof Error ? e.message : "Errore caricamento soundfont");
       return;
     }
 
     setLoadingSf(false);
-
-    const leadSec = 0.25;
-    const t0 = ac.currentTime + leadSec;
+    setSfProgress(null);
 
     const drumSynth = new Tone.PolySynth(Tone.Synth).toDestination();
     drumSynth.volume.value = -12;
 
-    const scheduleAt = (offsetFromT0: number) => Math.max(t0 + offsetFromT0, ac.currentTime + 0.02);
+    try {
+      const leadSec = 0.25;
+      const t0 = ac.currentTime + leadSec;
 
-    /** Brani con migliaia di note: un solo loop sincrono blocca il main thread e l’audio non parte (file corto ok). */
-    const yieldEvery = 350;
-    let scheduled = 0;
-    const yieldToMain = () => new Promise<void>((r) => setTimeout(r, 0));
+      const scheduleAt = (offsetFromT0: number) => Math.max(t0 + offsetFromT0, ac.currentTime + 0.02);
 
-    let songZeroAbs = Infinity;
-    const markZero = (when: number, noteTime: number) => {
-      songZeroAbs = Math.min(songZeroAbs, when - noteTime);
-    };
+      /** Brani con migliaia di note: un solo loop sincrono blocca il main thread e l’audio non parte (file corto ok). */
+      const yieldEvery = 350;
+      let scheduled = 0;
+      const yieldToMain = () => new Promise<void>((r) => setTimeout(r, 0));
 
-    for (const track of melodicTracks) {
-      const gleitzName = gleitzNameForPatch(track.instrument.number);
-      const inst = players.get(gleitzName)!;
-      for (const note of track.notes) {
-        scheduled += 1;
-        if (scheduled % yieldEvery === 0) await yieldToMain();
-        const when = scheduleAt(note.time);
-        markZero(when, note.time);
-        const gain = Math.max(0.05, note.velocity ?? 0.75);
-        const dur = Math.max(0.02, note.duration);
-        inst.play(note.name, when, { duration: dur, gain });
-      }
-    }
+      let songZeroAbs = Infinity;
+      const markZero = (when: number, noteTime: number) => {
+        songZeroAbs = Math.min(songZeroAbs, when - noteTime);
+      };
 
-    for (const track of drumTracks) {
-      for (const note of track.notes) {
-        scheduled += 1;
-        if (scheduled % yieldEvery === 0) await yieldToMain();
-        const when = scheduleAt(note.time);
-        markZero(when, note.time);
-        const vel = note.velocity ?? 0.75;
-        drumSynth.triggerAttackRelease(note.name, note.duration, when, vel);
-      }
-    }
-
-    t0Ref.current = Number.isFinite(songZeroAbs) ? songZeroAbs : t0;
-    timeSourceRef.current = () => Math.max(0, ac.currentTime - t0Ref.current);
-
-    const endAt = Math.max(0.5, midi.duration);
-    const endTimer = window.setTimeout(() => {
-      setPlaying(false);
-      setTransportSec(0);
-    }, endAt * 1000 + 300);
-
-    setPlaying(true);
-
-    disposeRef.current = () => {
-      window.clearTimeout(endTimer);
-      for (const p of players.values()) {
-        try {
-          p.stop?.();
-        } catch {
-          /* ignore */
+      for (const track of melodicTracks) {
+        const gleitzName = gleitzNameForPatch(track.instrument.number);
+        const inst = players.get(gleitzName)!;
+        for (const note of track.notes) {
+          scheduled += 1;
+          if (scheduled % yieldEvery === 0) await yieldToMain();
+          const when = scheduleAt(note.time);
+          markZero(when, note.time);
+          const gain = Math.max(0.05, note.velocity ?? 0.75);
+          const dur = Math.max(0.02, note.duration);
+          try {
+            inst.play(note.name, when, { duration: dur, gain });
+          } catch {
+            /* nota fuori dal range del campione: il resto del brano continua */
+          }
         }
       }
-      players.clear();
+
+      for (const track of drumTracks) {
+        for (const note of track.notes) {
+          scheduled += 1;
+          if (scheduled % yieldEvery === 0) await yieldToMain();
+          const when = scheduleAt(note.time);
+          markZero(when, note.time);
+          const vel = note.velocity ?? 0.75;
+          try {
+            drumSynth.triggerAttackRelease(note.name, note.duration, when, vel);
+          } catch {
+            /* polifonia/timing fuori range: nota saltata */
+          }
+        }
+      }
+
+      t0Ref.current = Number.isFinite(songZeroAbs) ? songZeroAbs : t0;
+      timeSourceRef.current = () => Math.max(0, ac.currentTime - t0Ref.current);
+
+      const endAt = Math.max(0.5, midi.duration);
+      const endTimer = window.setTimeout(() => {
+        setPlaying(false);
+        setTransportSec(0);
+      }, endAt * 1000 + 300);
+
+      setPlaying(true);
+
+      disposeRef.current = () => {
+        window.clearTimeout(endTimer);
+        for (const p of players.values()) {
+          try {
+            p.stop?.();
+          } catch {
+            /* ignore */
+          }
+        }
+        players.clear();
+        drumSynth.dispose();
+      };
+    } catch (e) {
+      // Prima l'eccezione interrompeva tutto in silenzio: il pulsante restava lì e "non accadeva niente".
+      console.error("[karaoke] scheduling fallito", e);
       drumSynth.dispose();
-    };
+      setLoadError(e instanceof Error ? e.message : "Errore durante l'avvio del brano");
+    }
   }, [midi, bank.gleitzFolder, base]);
 
   const startPlayback = useCallback(async () => {
-    if (bank.kind === "sf2") {
-      await startSf2Playback();
-    } else {
-      await startGleitzPlayback();
+    try {
+      if (bank.kind === "sf2") {
+        await startSf2Playback();
+      } else {
+        await startGleitzPlayback();
+      }
+    } catch (e) {
+      // Rete di sicurezza: qualsiasi errore deve arrivare a schermo, mai un click "a vuoto".
+      console.error("[karaoke] avvio fallito", e);
+      setLoadingSf(false);
+      setSfProgress(null);
+      setLoadError(e instanceof Error ? e.message : "Avvio non riuscito");
     }
   }, [bank.kind, startSf2Playback, startGleitzPlayback]);
 
@@ -329,7 +367,9 @@ export function KaraokePlayer({ songId, title, artist, lrcPath, soundfontBankId,
     return () => cancelAnimationFrame(rafRef.current);
   }, [playing]);
 
-  const idx = useMemo(() => currentLrcIndex(lrcLines, transportSec), [lrcLines, transportSec]);
+  // Il file .lrc (se caricato dall'admin) ha priorità sui testi incorporati nel MIDI.
+  const effectiveLines = lrcLines.length > 0 ? lrcLines : midiLyrics;
+  const idx = useMemo(() => currentLrcIndex(effectiveLines, transportSec), [effectiveLines, transportSec]);
 
   return (
     <div className="flex w-full max-w-5xl flex-col items-center gap-8">
@@ -361,7 +401,11 @@ export function KaraokePlayer({ songId, title, artist, lrcPath, soundfontBankId,
             onClick={() => void startPlayback()}
             className="rounded-xl bg-fuchsia-600 px-8 py-4 text-lg font-semibold text-white shadow-lg shadow-fuchsia-900/40 hover:bg-fuchsia-500 disabled:opacity-50"
           >
-            {loadingSf ? "Carico strumenti…" : "Avvia karaoke"}
+            {loadingSf
+              ? sfProgress
+                ? `Carico strumenti… ${sfProgress.done}/${sfProgress.total}`
+                : "Carico strumenti…"
+              : "Avvia karaoke"}
           </button>
           <p className="text-center text-xs text-zinc-500">
             Il browser richiede un tap su questo pulsante per l&apos;audio. Dopo un ricaricamento della pagina
@@ -371,10 +415,10 @@ export function KaraokePlayer({ songId, title, artist, lrcPath, soundfontBankId,
       )}
 
       <LyricsPanel
-        lines={lrcLines}
+        lines={effectiveLines}
         index={idx}
         title={title}
-        noLyricsHint='Il file MIDI non contiene testo cantabile: servono parole in un file .lrc caricato dall&apos;admin insieme al MIDI. Senza LRC sentirai solo la base strumentale dopo "Avvia karaoke".'
+        noLyricsHint='Nessun testo trovato: né incorporato nel file MIDI né in un .lrc caricato dall&apos;admin. Sentirai solo la base strumentale dopo "Avvia karaoke".'
       />
     </div>
   );

@@ -50,22 +50,24 @@ export async function registerBookingRoutes(fastify: FastifyInstance): Promise<v
         performance: true,
       },
     });
-    if (!booking?.performance || !booking.song) {
+    if (!booking?.performance) {
       return reply.send({ live: null });
     }
     const s = booking.song;
     return reply.send({
       live: {
         performance: { id: booking.performance.id },
-        booking: { id: booking.id },
-        song: {
-          id: s.id,
-          title: s.title,
-          artist: s.artist,
-          source: s.source,
-          midiPath: s.midiPath,
-          lrcPath: s.lrcPath,
-        },
+        booking: { id: booking.id, ytUrl: booking.ytUrl, ytTitle: booking.ytTitle },
+        song: s
+          ? {
+              id: s.id,
+              title: s.title,
+              artist: s.artist,
+              source: s.source,
+              midiPath: s.midiPath,
+              lrcPath: s.lrcPath,
+            }
+          : null,
         user: { nickname: booking.user.nickname },
       },
     });

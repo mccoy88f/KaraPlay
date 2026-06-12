@@ -3,7 +3,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { io, type Socket } from "socket.io-client";
 import QRCode from "qrcode";
 import { KaraokePlayer } from "../components/KaraokePlayer";
-import { YoutubePlayer } from "../components/YoutubePlayer";
+import { YoutubeEmbed } from "../components/YoutubeEmbed";
 import {
   apiGetEventById,
   apiGetEventLeaderboard,
@@ -27,7 +27,7 @@ type SongPayload = {
 
 type PerfPayload = {
   performance: { id: string };
-  booking?: { id: string } | null;
+  booking?: { id: string; ytUrl?: string | null; ytTitle?: string | null } | null;
   song: SongPayload | null;
   user: { nickname: string };
 };
@@ -73,7 +73,6 @@ export function Display() {
   const [voteCount, setVoteCount] = useState(0);
   const [comments, setComments] = useState<OverlayComment[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [ytHint, setYtHint] = useState<string | null>(null);
 
   const socketRef = useRef<Socket | null>(null);
   const liveRef = useRef<PerfPayload | null>(null);
@@ -218,18 +217,6 @@ export function Display() {
       socket.on("leaderboard:update", (payload: { entries: LeaderboardEntry[] }) => {
         setLeaderboard(payload.entries ?? []);
       });
-
-      socket.on("youtube:processing", (payload: { bookingId: string; progress: number }) => {
-        setYtHint(`YouTube: download in corso… ${payload.progress}%`);
-      });
-      socket.on("youtube:ready", () => {
-        setYtHint("Brano YouTube pronto in coda");
-        window.setTimeout(() => setYtHint(null), 4000);
-      });
-      socket.on("youtube:error", (payload: { error?: string }) => {
-        setYtHint(`YouTube: errore — ${payload?.error ?? "sconosciuto"}`);
-        window.setTimeout(() => setYtHint(null), 8000);
-      });
     }
 
     bootstrap().catch(() => setError("Connessione fallita"));
@@ -293,11 +280,6 @@ export function Display() {
 
       <main className="relative flex flex-1 flex-col px-4 py-8 text-center md:px-10">
         {error && <p className="text-sm text-red-400">{error}</p>}
-        {ytHint && (
-          <p className="text-sm text-amber-200/90" role="status">
-            {ytHint}
-          </p>
-        )}
 
         {live ? (
           <div className="flex flex-1 flex-col items-center gap-6 md:gap-10">
@@ -324,27 +306,19 @@ export function Display() {
                 soundfontBankId={sfBank}
                 onTick={handleTick}
               />
-            ) : live.song?.source === "YOUTUBE" && live.booking?.id ? (
-              <YoutubePlayer
+            ) : live.booking?.ytUrl ? (
+              <YoutubeEmbed
                 key={live.performance.id}
-                bookingId={live.booking.id}
-                songId={live.song.id}
-                title={live.song.title}
-                artist={live.song.artist}
-                lrcPath={live.song.lrcPath}
-                onTick={handleTick}
+                ytUrl={live.booking.ytUrl}
+                title={live.booking.ytTitle ?? live.song?.title ?? "Brano YouTube"}
+                nickname={live.user.nickname}
               />
             ) : (
               <div className="flex max-w-4xl flex-col items-center gap-6">
                 <h1 className="font-display text-4xl font-bold text-white md:text-6xl">
-                  {live.song ? live.song.title : "Brano YouTube"}
+                  {live.song ? live.song.title : "Brano"}
                 </h1>
                 {live.song && <p className="text-xl text-zinc-400">{live.song.artist}</p>}
-                {!live.song && (
-                  <p className="text-sm text-zinc-500">
-                    Brano non ancora elaborato: l&apos;host deve avviare il download da /admin.
-                  </p>
-                )}
               </div>
             )}
           </div>

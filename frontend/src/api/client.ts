@@ -82,7 +82,7 @@ export async function apiGetQueue(eventId: string) {
 
 export type LivePerformancePayload = {
   performance: { id: string };
-  booking?: { id: string };
+  booking?: { id: string; ytUrl?: string | null; ytTitle?: string | null };
   song: {
     id: string;
     title: string;
@@ -90,7 +90,7 @@ export type LivePerformancePayload = {
     source: string;
     midiPath: string | null;
     lrcPath: string | null;
-  };
+  } | null;
   user: { nickname: string };
 };
 

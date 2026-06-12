@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { io, type Socket } from "socket.io-client";
+import { Midi } from "@tonejs/midi";
 import { apiGetLivePerformance, apiGetQueue, getStoredEvent } from "../api/client";
 import { currentLrcIndex, parseLrc, type LrcLine } from "../lib/lrc";
+import { extractMidiLyrics } from "../lib/midiLyrics";
 
 const base = import.meta.env.VITE_API_URL ?? "";
 const socketUrl = import.meta.env.VITE_API_URL || (typeof window !== "undefined" ? window.location.origin : "");
@@ -71,19 +73,29 @@ export function Stage() {
     return () => cancelAnimationFrame(rafRef.current);
   }, [live]);
 
-  // Testi LRC del brano corrente
+  // Testi del brano corrente: file .lrc se presente, altrimenti i lyric incorporati nel MIDI
   useEffect(() => {
     setLrcLines([]);
-    if (!live?.lrcPath || !live.songId) return;
+    if (!live?.songId) return;
+    const songId = live.songId;
     let cancelled = false;
     void (async () => {
       try {
-        const res = await fetch(`${base}/api/media/song/${encodeURIComponent(live.songId!)}/lrc`);
-        if (!res.ok) return;
-        const text = await res.text();
-        if (!cancelled) setLrcLines(parseLrc(text));
+        if (live.lrcPath) {
+          const res = await fetch(`${base}/api/media/song/${encodeURIComponent(songId)}/lrc`);
+          if (res.ok) {
+            const text = await res.text();
+            if (!cancelled) setLrcLines(parseLrc(text));
+            return;
+          }
+        }
+        const midiRes = await fetch(`${base}/api/media/song/${encodeURIComponent(songId)}/midi`);
+        if (!midiRes.ok) return;
+        const buf = await midiRes.arrayBuffer();
+        const lines = extractMidiLyrics(buf, new Midi(buf));
+        if (!cancelled) setLrcLines(lines);
       } catch {
-        /* senza LRC restano titolo e artista */
+        /* senza testi restano titolo e artista */
       }
     })();
     return () => {
@@ -99,13 +111,14 @@ export function Stage() {
 
     function applyLive(payload: {
       performance: { id: string };
+      booking?: { ytTitle?: string | null } | null;
       song: { id: string; title: string; artist: string; lrcPath?: string | null } | null;
       user: { nickname: string };
     }) {
       setLive({
         performanceId: payload.performance.id,
         songId: payload.song?.id ?? null,
-        title: payload.song?.title ?? "Brano YouTube",
+        title: payload.song?.title ?? payload.booking?.ytTitle ?? "Brano YouTube",
         artist: payload.song?.artist ?? "",
         nickname: payload.user.nickname,
         lrcPath: payload.song?.lrcPath ?? null,

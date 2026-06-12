@@ -51,6 +51,13 @@ le voci `[ ]` restano da fare per arrivare a un progetto completo e funzionante 
     resta il player `soundfont-player` esistente con campioni mp3 pre-renderizzati;
   - il file SF2 è servito da `GET /api/media/sf2/:file` e messo in cache nel browser tra un brano
     e l'altro.
+- [x] **Testi karaoke incorporati nel MIDI** (meta-eventi lyric FF05/FF01 dei file .kar,
+  come da spec): estratti e sincronizzati automaticamente quando manca il file .lrc
+  (il .lrc, se caricato, ha priorità). Funziona su display e palco.
+- [x] **Robustezza player Gleitz**: caricamento strumenti in parallelo con progresso
+  visibile ("Carico strumenti… 3/11"), errori di scheduling mostrati a schermo invece
+  di interrompere in silenzio (prima un'eccezione su una nota lasciava il pulsante
+  "Avvia" senza alcun feedback), note problematiche saltate senza fermare il brano.
 - [ ] Migliorare il player Gleitz di fallback: oggi le percussioni (canale 10) usano un
   `Tone.PolySynth` generico che suona note intonate: o scaricare un drum kit dedicato o
   deprecare i banchi Gleitz quando un SF2 è disponibile.
@@ -64,12 +71,12 @@ le voci `[ ]` restano da fare per arrivare a un progetto completo e funzionante 
 - [x] **Ricerca YouTube integrata**: `GET /api/youtube/search?q=` (autenticata, usa `yt-dlp ytsearch`)
   e UI nel catalogo pubblico (`BookCatalog`) con doppia scheda **Catalogo MIDI / YouTube**:
   il pubblico cerca un brano e lo prenota; la prenotazione entra in coda come `PENDING`.
-- [x] **Flusso di approvazione YouTube completato nel pannello admin** (prima esisteva solo l'API):
-  - pulsanti **Approva / Rifiuta** per le prenotazioni `PENDING`;
-  - pulsante **Scarica audio** (avvio `yt-dlp`) per le prenotazioni YouTube `APPROVED`,
-    con stato `PROCESSING` ed eventuale errore (`ytProcessError`) visibile in coda.
-- [x] **Riproduzione YouTube sul display**: per i brani con sorgente YouTube il display ora riproduce
-  l'audio scaricato (`/api/media/yt/:bookingId`) con testi LRC sincronizzati (da LRCLIB) quando trovati.
+- [x] **Flusso di approvazione YouTube nel pannello admin**: pulsanti **Approva / Rifiuta**
+  per le prenotazioni `PENDING`; una volta approvate si avviano direttamente.
+- [x] **Riproduzione YouTube sul display via embed**: il video viene riprodotto direttamente
+  nell'iframe YouTube (l'audio è già nel video) — niente più download audio con yt-dlp né
+  ricerca testi su LRCLIB. yt-dlp resta solo per ricerca e preview. Rimossi
+  youtube-process.service, le rotte di process/status e `/api/media/yt/:bookingId`.
 - [ ] Ricerca nel catalogo MIDI lato server per cataloghi grandi (oggi il filtro è client-side;
   l'endpoint `GET /api/songs?q=` esiste già).
 - [ ] Metadati migliori per i risultati YouTube (durata talvolta assente con `--flat-playlist`).
@@ -105,5 +112,4 @@ le voci `[ ]` restano da fare per arrivare a un progetto completo e funzionante 
 - [ ] `ADMIN_TOKEN` statico come unica autenticazione admin: valutare login host con password + JWT.
 - [ ] Rate limiting su endpoint pubblici (join, ricerca YouTube) — es. `@fastify/rate-limit`.
 - [ ] Validazione/dimensione upload MIDI-LRC più stringente e scansione dei tag del file.
-- [ ] Persistenza dei job YouTube (oggi in memoria: un riavvio del backend perde lo stato).
 - [ ] Test automatici (oggi assenti): unit per servizi backend, e2e per il flusso prenotazione.

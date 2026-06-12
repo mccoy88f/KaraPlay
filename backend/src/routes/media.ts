@@ -93,24 +93,4 @@ export async function registerMediaRoutes(fastify: FastifyInstance): Promise<voi
     return reply.send(createReadStream(abs));
   });
 
-  fastify.get<{ Params: { bookingId: string } }>("/media/yt/:bookingId", async (request, reply) => {
-    const booking = await prisma.booking.findUnique({
-      where: { id: request.params.bookingId },
-      include: { song: true },
-    });
-    const rel = booking?.song?.mp3Path;
-    if (!booking || !rel) {
-      return reply.code(404).send({ error: "Audio non disponibile" });
-    }
-    const abs = path.join(getStorageRoot(), rel);
-    try {
-      await access(abs);
-    } catch {
-      return reply.code(404).send({ error: "File non trovato sul disco" });
-    }
-
-    reply.header("Cache-Control", "public, max-age=3600");
-    reply.type("audio/ogg");
-    return reply.send(createReadStream(abs));
-  });
 }
