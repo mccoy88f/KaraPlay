@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { io, type Socket } from "socket.io-client";
 import QRCode from "qrcode";
@@ -56,7 +56,9 @@ type EventInfo = {
   joinCode: string;
 };
 
+const base = import.meta.env.VITE_API_URL ?? "";
 const socketUrl = import.meta.env.VITE_API_URL || (typeof window !== "undefined" ? window.location.origin : "");
+const ADMIN_TOKEN_KEY = "karaoke_admin_jwt";
 const MEDALS = ["🥇", "🥈", "🥉"];
 const COMMENT_TTL_MS = 9000;
 
@@ -80,6 +82,14 @@ export function Display() {
   const [searchParams] = useSearchParams();
   const eventId = searchParams.get("eventId") ?? getStoredEvent()?.id ?? null;
 
+  // Lo schermo sala è del presentatore: serve il login admin e la serata deve essere sua.
+  const [adminToken, setAdminToken] = useState<string | null>(() => localStorage.getItem(ADMIN_TOKEN_KEY));
+  const [auth, setAuth] = useState<"checking" | "login" | "denied" | "ok">("checking");
+  const [loginUser, setLoginUser] = useState("");
+  const [loginPw, setLoginPw] = useState("");
+  const [loginErr, setLoginErr] = useState<string | null>(null);
+  const [loginBusy, setLoginBusy] = useState(false);
+
   const [eventInfo, setEventInfo] = useState<EventInfo | null>(null);
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const [sfBank, setSfBank] = useState<SoundfontBankId>(() => getSoundfontBank(null).id);
@@ -96,6 +106,79 @@ export function Display() {
   const socketRef = useRef<Socket | null>(null);
   const liveRef = useRef<PerfPayload | null>(null);
   liveRef.current = live;
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!adminToken) {
+      setAuth("login");
+      return;
+    }
+    setAuth("checking");
+    void (async () => {
+      try {
+        const res = await fetch(`${base}/api/admin/events`, {
+          headers: { Authorization: `Bearer ${adminToken}` },
+        });
+        const data = await res.json().catch(() => ({}));
+        if (cancelled) return;
+        if (!res.ok) {
+          localStorage.removeItem(ADMIN_TOKEN_KEY);
+          setAdminToken(null);
+          setAuth("login");
+          return;
+        }
+        const events = (data as { events?: { id: string }[] }).events ?? [];
+        setAuth(!eventId || events.some((e) => e.id === eventId) ? "ok" : "denied");
+      } catch {
+        if (!cancelled) setAuth("login");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [adminToken, eventId]);
+
+  async function displayLogin(e: React.FormEvent) {
+    e.preventDefault();
+    setLoginErr(null);
+    setLoginBusy(true);
+    try {
+      const res = await fetch(`${base}/api/admin/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: loginUser.trim(), password: loginPw }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setLoginErr((data as { error?: string }).error ?? "Accesso fallito");
+        return;
+      }
+      const token = (data as { token: string }).token;
+      localStorage.setItem(ADMIN_TOKEN_KEY, token);
+      setAdminToken(token);
+      setLoginPw("");
+    } finally {
+      setLoginBusy(false);
+    }
+  }
+
+  /** Fine naturale del brano: lo schermo (autenticato) chiude l'esibizione da solo. */
+  const endingRef = useRef(false);
+  const autoEnd = useCallback(async () => {
+    const perfId = liveRef.current?.performance.id;
+    const token = localStorage.getItem(ADMIN_TOKEN_KEY);
+    if (!perfId || !token || endingRef.current) return;
+    endingRef.current = true;
+    try {
+      await fetch(`${base}/api/admin/performances/${encodeURIComponent(perfId)}/end`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      // performance:end arriva via socket: punteggio, coriandoli e schermata d'attesa
+    } catch {
+      endingRef.current = false;
+    }
+  }, []);
 
   // Scadenza commenti overlay
   useEffect(() => {
@@ -176,6 +259,7 @@ export function Display() {
       });
 
       socket.on("performance:start", (payload: PerfPayload) => {
+        endingRef.current = false;
         setLive(payload);
         setLastScore(null);
         setVoteAvg(null);
@@ -265,6 +349,82 @@ export function Display() {
     );
   }
 
+  if (auth === "checking") {
+    return (
+      <div className="kg-page-bg flex min-h-dvh items-center justify-center">
+        <p className="text-sm text-zinc-500">Verifica accesso…</p>
+      </div>
+    );
+  }
+
+  if (auth === "login") {
+    return (
+      <div className="kg-page-bg flex min-h-dvh flex-col items-center justify-center px-4">
+        <div className="w-full max-w-sm">
+          <header className="mb-8 text-center">
+            <p className="font-display text-xs uppercase tracking-[0.35em] text-amber-300/90">Schermo sala</p>
+            <h1 className="font-display mt-3 text-2xl font-semibold text-white">Riservato al presentatore</h1>
+            <p className="mt-3 text-sm text-zinc-400">
+              Accedi con le credenziali del pannello host: lo schermo gestirà da solo la fine dei brani.
+            </p>
+          </header>
+          <form onSubmit={displayLogin} className="kg-card flex flex-col gap-4 p-6">
+            <label className="flex flex-col gap-1.5 text-sm">
+              <span className="text-zinc-400">Nome utente</span>
+              <input
+                className="rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2.5 outline-none ring-amber-500/30 focus:ring-2"
+                value={loginUser}
+                onChange={(e) => setLoginUser(e.target.value)}
+                autoComplete="username"
+                required
+              />
+            </label>
+            <label className="flex flex-col gap-1.5 text-sm">
+              <span className="text-zinc-400">Password</span>
+              <input
+                type="password"
+                className="rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2.5 outline-none ring-amber-500/30 focus:ring-2"
+                value={loginPw}
+                onChange={(e) => setLoginPw(e.target.value)}
+                autoComplete="current-password"
+                required
+              />
+            </label>
+            {loginErr && <p className="text-sm text-red-400">{loginErr}</p>}
+            <button
+              type="submit"
+              disabled={loginBusy || !loginUser.trim() || !loginPw}
+              className="font-display mt-1 rounded-xl bg-gradient-to-r from-amber-600 to-amber-500 px-4 py-3 font-semibold text-white hover:from-amber-500 hover:to-amber-400 disabled:opacity-40"
+            >
+              {loginBusy ? "Accesso…" : "Apri lo schermo"}
+            </button>
+          </form>
+          <p className="mt-4 text-center text-sm text-zinc-600">
+            <Link to="/join" className="hover:text-zinc-400">
+              ← Area pubblico
+            </Link>
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (auth === "denied") {
+    return (
+      <div className="kg-page-bg flex min-h-dvh flex-col items-center justify-center px-6 text-center">
+        <p className="font-display text-xs uppercase tracking-[0.4em] text-amber-300/90">Schermo sala</p>
+        <h1 className="font-display mt-6 text-2xl font-semibold text-white">Serata di un altro admin</h1>
+        <p className="mt-4 max-w-md text-zinc-400">
+          Questo account non gestisce la serata richiesta. Apri lo schermo dalla console di conduzione
+          della tua serata.
+        </p>
+        <Link to="/admin" className="mt-8 text-sm text-cyan-400 hover:underline">
+          Vai al pannello host
+        </Link>
+      </div>
+    );
+  }
+
   const upNext = queue.filter((b) => b.status === "APPROVED" || b.status === "READY").slice(0, 3);
   const queueLen = queue.filter((b) => !["DONE", "REJECTED", "SKIPPED"].includes(b.status)).length;
 
@@ -338,6 +498,7 @@ export function Display() {
                 artist={live.song.artist}
                 lrcPath={live.song.lrcPath}
                 soundfontBankId={sfBank}
+                onEnded={() => void autoEnd()}
               />
             ) : live.song?.source === "YOUTUBE" && live.booking?.id ? (
               // Video pre-scaricato sul server (la Song esiste solo a download completato): no pubblicità.
@@ -345,12 +506,14 @@ export function Display() {
                 key={live.performance.id}
                 bookingId={live.booking.id}
                 title={live.song.title}
+                onEnded={() => void autoEnd()}
               />
             ) : live.booking?.ytUrl ? (
               <YoutubeEmbed
                 key={live.performance.id}
                 ytUrl={live.booking.ytUrl}
                 title={live.booking.ytTitle ?? live.song?.title ?? "Brano YouTube"}
+                onEnded={() => void autoEnd()}
               />
             ) : (
               <div className="flex max-w-4xl flex-col items-center gap-6">

@@ -57,9 +57,11 @@ type Props = {
    * In quel caso `songId` non è usato per il fetch del MIDI (serve comunque per coerenza tipo).
    */
   remoteMidiUrl?: string | null;
+  /** Fine naturale del brano: il display la usa per chiudere l'esibizione da solo. */
+  onEnded?: () => void;
 };
 
-export function KaraokePlayer({ songId, title, artist, lrcPath, soundfontBankId, remoteMidiUrl }: Props) {
+export function KaraokePlayer({ songId, title, artist, lrcPath, soundfontBankId, remoteMidiUrl, onEnded }: Props) {
   const bankId = soundfontBankId ?? getSoundfontBank(null).id;
   const bank = getSoundfontBank(bankId);
 
@@ -159,6 +161,7 @@ export function KaraokePlayer({ songId, title, artist, lrcPath, soundfontBankId,
       seq.eventHandler.addEvent("songEnded", "karaoke-player-end", () => {
         setPlaying(false);
         setTransportSec(0);
+        onEnded?.();
       });
       seq.play();
 
@@ -184,7 +187,7 @@ export function KaraokePlayer({ songId, title, artist, lrcPath, soundfontBankId,
       setLoadError(e instanceof Error ? e.message : "Errore caricamento SoundFont");
       void ac.close().catch(() => {});
     }
-  }, [midi, bank.sf2File, title]);
+  }, [midi, bank.sf2File, title, onEnded]);
 
   const startGleitzPlayback = useCallback(async () => {
     if (!midi) return;
@@ -301,6 +304,7 @@ export function KaraokePlayer({ songId, title, artist, lrcPath, soundfontBankId,
       const endTimer = window.setTimeout(() => {
         setPlaying(false);
         setTransportSec(0);
+        onEnded?.();
       }, endAt * 1000 + 300);
 
       setPlaying(true);
@@ -323,7 +327,7 @@ export function KaraokePlayer({ songId, title, artist, lrcPath, soundfontBankId,
       drumSynth.dispose();
       setLoadError(e instanceof Error ? e.message : "Errore durante l'avvio del brano");
     }
-  }, [midi, bank.gleitzFolder, base]);
+  }, [midi, bank.gleitzFolder, base, onEnded]);
 
   const startPlayback = useCallback(async () => {
     try {

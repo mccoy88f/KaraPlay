@@ -1,8 +1,10 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 type Props = {
   ytUrl: string;
   title: string;
+  /** Fine del video: il display la usa per chiudere l'esibizione da solo. */
+  onEnded?: () => void;
 };
 
 /** Estrae l'id video dalle forme comuni di URL YouTube (watch, youtu.be, shorts, embed). */
@@ -24,14 +26,90 @@ export function youtubeVideoId(url: string): string | null {
   return null;
 }
 
+/* IFrame Player API: serve per sapere quando il video finisce (l'iframe puro non lo dice). */
+type YTPlayer = { destroy: () => void };
+type YTNamespace = {
+  Player: new (
+    el: HTMLElement,
+    opts: {
+      videoId: string;
+      host?: string;
+      width?: string;
+      height?: string;
+      playerVars?: Record<string, string | number>;
+      events?: { onStateChange?: (e: { data: number }) => void };
+    }
+  ) => YTPlayer;
+  PlayerState: { ENDED: number };
+};
+
+declare global {
+  interface Window {
+    YT?: YTNamespace;
+    onYouTubeIframeAPIReady?: () => void;
+  }
+}
+
+let ytApiPromise: Promise<YTNamespace> | null = null;
+function loadYouTubeApi(): Promise<YTNamespace> {
+  if (ytApiPromise) return ytApiPromise;
+  ytApiPromise = new Promise((resolve) => {
+    if (window.YT?.Player) {
+      resolve(window.YT);
+      return;
+    }
+    const prev = window.onYouTubeIframeAPIReady;
+    window.onYouTubeIframeAPIReady = () => {
+      prev?.();
+      resolve(window.YT!);
+    };
+    const s = document.createElement("script");
+    s.src = "https://www.youtube.com/iframe_api";
+    document.head.appendChild(s);
+  });
+  return ytApiPromise;
+}
+
 /**
  * Riproduce il video YouTube direttamente (l'audio è già nel video, niente download).
- * L'iframe parte dopo un click e riempe tutto lo spazio disponibile:
- * il display lascia in alto solo nome e voti.
+ * Parte dopo un click e riempe tutto lo spazio disponibile; a fine video chiama onEnded.
  */
-export function YoutubeEmbed({ ytUrl, title }: Props) {
+export function YoutubeEmbed({ ytUrl, title, onEnded }: Props) {
   const [started, setStarted] = useState(false);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const onEndedRef = useRef(onEnded);
+  onEndedRef.current = onEnded;
   const videoId = youtubeVideoId(ytUrl);
+
+  useEffect(() => {
+    if (!started || !videoId) return;
+    let cancelled = false;
+    let player: YTPlayer | undefined;
+    void loadYouTubeApi().then((YTApi) => {
+      const host = containerRef.current?.firstElementChild as HTMLElement | null;
+      if (cancelled || !host) return;
+      player = new YTApi.Player(host, {
+        videoId,
+        host: "https://www.youtube-nocookie.com",
+        width: "100%",
+        height: "100%",
+        playerVars: { autoplay: 1, rel: 0 },
+        events: {
+          onStateChange: (e) => {
+            if (e.data === YTApi.PlayerState.ENDED) onEndedRef.current?.();
+          },
+        },
+      });
+    });
+    return () => {
+      cancelled = true;
+      try {
+        player?.destroy();
+      } catch {
+        /* già distrutto */
+      }
+    };
+  }, [started, videoId]);
 
   if (!videoId) {
     return (
@@ -45,18 +123,14 @@ export function YoutubeEmbed({ ytUrl, title }: Props) {
   return (
     <div className="relative min-h-0 w-full flex-1 overflow-hidden rounded-2xl border border-zinc-800 bg-black shadow-2xl shadow-black/60">
       {started ? (
-        <iframe
-          className="h-full w-full"
-          src={`https://www.youtube-nocookie.com/embed/${encodeURIComponent(videoId)}?autoplay=1&rel=0&modestbranding=1`}
-          title={title}
-          allow="autoplay; encrypted-media; picture-in-picture"
-          allowFullScreen
-        />
+        <div ref={containerRef} className="h-full w-full [&>iframe]:h-full [&>iframe]:w-full">
+          <div />
+        </div>
       ) : (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-black/60 px-6 text-center">
           <p className="font-display max-w-3xl text-2xl font-semibold text-white md:text-4xl">{title}</p>
           <span className="rounded-full border border-red-500/40 bg-red-500/10 px-3 py-1 text-xs uppercase tracking-widest text-red-200/90">
-            🎬 Free Style · YouTube
+            🎬 YouTube
           </span>
           <button
             type="button"

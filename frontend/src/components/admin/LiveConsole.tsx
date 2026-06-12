@@ -27,7 +27,7 @@ type QueueBooking = {
   ytProcessError: string | null;
   user: { nickname: string };
   song: { id: string; title: string; artist: string; source?: string } | null;
-  performance: { id: string } | null;
+  performance: { id: string; scoreTotal?: number | null } | null;
 };
 
 type Sf2File = { file: string; size: number };
@@ -148,6 +148,7 @@ export function LiveConsole({ authHeader, isSuper }: Props) {
   performingRef.current = performing?.performance?.id ?? null;
   const pending = queue.filter((b) => b.status === "PENDING");
   const upcoming = queue.filter((b) => ["APPROVED", "READY", "PROCESSING"].includes(b.status));
+  const done = queue.filter((b) => b.status === "DONE").slice(-6).reverse();
 
   async function adminFetch(path: string, init?: RequestInit): Promise<boolean> {
     setErr(null);
@@ -253,6 +254,18 @@ export function LiveConsole({ authHeader, isSuper }: Props) {
   async function remove(b: QueueBooking) {
     if (!window.confirm(`Togliere «${bookingTitle(b)}» dalla scaletta?`)) return;
     await adminFetch(`/admin/bookings/${b.id}`, { method: "DELETE" });
+  }
+
+  /** Bis: rimette il brano in fondo alla scaletta. */
+  async function replay(b: QueueBooking) {
+    setMsg(null);
+    setBusy(b.id);
+    try {
+      const ok = await adminFetch(`/admin/bookings/${b.id}/replay`, { method: "POST" });
+      if (ok) setMsg(`«${bookingTitle(b)}» rimessa in scaletta per il bis.`);
+    } finally {
+      setBusy(null);
+    }
   }
 
   async function downloadVideo(b: QueueBooking) {
@@ -672,6 +685,42 @@ export function LiveConsole({ authHeader, isSuper }: Props) {
               </ul>
             )}
           </section>
+
+          {/* già cantate: bis con un tap */}
+          {done.length > 0 && (
+            <section className="kg-card p-5 md:p-6">
+              <p className="text-xs font-medium uppercase tracking-[0.25em] text-zinc-500">
+                ✅ Già cantate ({done.length})
+              </p>
+              <ul className="mt-3 space-y-2">
+                {done.map((b) => (
+                  <li key={b.id} className="flex items-center gap-3 rounded-lg border border-zinc-800 bg-zinc-950/60 px-3 py-2">
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm text-zinc-300">
+                        <span className="font-medium text-white">{b.user.nickname}</span>
+                        <span className="text-zinc-600"> · </span>
+                        {bookingTitle(b)}
+                      </p>
+                    </div>
+                    {b.performance?.scoreTotal != null && (
+                      <span className="font-display shrink-0 text-amber-300">
+                        ★ {b.performance.scoreTotal.toFixed(1)}
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      disabled={busy === b.id}
+                      title="Rimetti il brano in fondo alla scaletta"
+                      onClick={() => void replay(b)}
+                      className="shrink-0 rounded-lg border border-cyan-500/40 px-3 py-1.5 text-xs text-cyan-200 hover:bg-cyan-500/15 disabled:opacity-40"
+                    >
+                      ↻ Ripeti
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
 
           {/* impostazioni audio richiudibili */}
           <section className="kg-card p-5 md:p-6">

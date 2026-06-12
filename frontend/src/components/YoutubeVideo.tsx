@@ -6,13 +6,15 @@ type Props = {
   /** Il video scaricato da yt-dlp è servito per prenotazione (/api/media/yt/:bookingId). */
   bookingId: string;
   title: string;
+  /** Fine del video: il display la usa per chiudere l'esibizione da solo. */
+  onEnded?: () => void;
 };
 
 /**
  * Video YouTube pre-scaricato sul server: riproduzione senza pubblicità.
  * Riempe tutto lo spazio disponibile: il display lascia in alto solo nome e voti.
  */
-export function YoutubeVideo({ bookingId, title }: Props) {
+export function YoutubeVideo({ bookingId, title, onEnded }: Props) {
   const videoUrl = `${base}/api/media/yt/${encodeURIComponent(bookingId)}`;
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [playing, setPlaying] = useState(false);
@@ -37,7 +39,10 @@ export function YoutubeVideo({ bookingId, title }: Props) {
         controls={playing}
         onPlay={() => setPlaying(true)}
         onPause={() => setPlaying(false)}
-        onEnded={() => setPlaying(false)}
+        onEnded={() => {
+          setPlaying(false);
+          onEnded?.();
+        }}
         onError={() => setError("Video non disponibile: riprova il download da /admin")}
       />
       {!playing && (

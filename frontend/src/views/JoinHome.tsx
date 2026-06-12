@@ -85,12 +85,6 @@ export function JoinHome() {
 
         <footer className="mt-auto border-t border-zinc-800/80 pt-6 text-sm text-zinc-500">
           <nav className="flex flex-wrap gap-x-4 gap-y-2 text-zinc-500">
-            <Link to="/display" className="hover:text-white">
-              Schermo
-            </Link>
-            <span aria-hidden="true" className="text-zinc-700">
-              ·
-            </span>
             <Link to="/join/enter" className="hover:text-white">
               Cambia nickname
             </Link>

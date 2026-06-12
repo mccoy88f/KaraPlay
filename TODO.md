@@ -105,6 +105,13 @@ le voci `[ ]` restano da fare per arrivare a un progetto completo e funzionante 
   rotta, link e il relay socket `transport:tick` che la sincronizzava.
 - [x] **Verifica email/OTP**: tab Profilo su /join con statistiche personali e flusso
   email → codice OTP → verifica (richiede SMTP configurato per l'invio reale).
+- [x] **Schermo sala riservato al presentatore**: /display richiede il login admin
+  (stesse credenziali del pannello, token condiviso) e verifica che la serata sia
+  gestita da quell'account. A fine brano (MIDI, video locale o embed via IFrame API)
+  lo schermo chiude l'esibizione **da solo**: punteggio, coriandoli e schermata
+  d'attesa senza intervento dell'host, che può comunque concludere prima dalla
+  console, andare avanti con la scaletta o rimettere il brano in coda col "↻ Ripeti"
+  (sezione "Già cantate", nuova rotta POST /api/admin/bookings/:id/replay).
 - [x] **QR code sul display**: nella schermata di attesa, con PIN e link diretto
   `/join/enter?pin=…` (campo PIN precompilato).
 - [x] **Creazione serate da admin** con `GET /api/admin/events`.
