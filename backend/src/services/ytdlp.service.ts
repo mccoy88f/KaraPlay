@@ -133,9 +133,10 @@ export async function searchYoutube(query: string, limit = 8): Promise<YoutubeSe
 export type DownloadProgress = { percent: number | null; line: string };
 
 /**
- * Scarica il video completo in mp4 (max 1080p) sotto outputPath, senza estensione:
- * il file finale è `${outputBasePathWithoutExt}.mp4`. Riprodotto dal server al posto
- * dell'embed YouTube per evitare la pubblicità. Richiede ffmpeg per il merge.
+ * Scarica il video alla massima qualità disponibile (bestvideo+bestaudio, merge in mp4)
+ * sotto outputPath, senza estensione: il file finale è `${outputBasePathWithoutExt}.mp4`.
+ * Riprodotto dal server al posto dell'embed YouTube per evitare la pubblicità.
+ * Richiede ffmpeg per il merge.
  */
 export async function downloadVideoMp4(
   url: string,
@@ -144,7 +145,7 @@ export async function downloadVideoMp4(
 ): Promise<string> {
   const args = [
     "-f",
-    "bv*[ext=mp4][height<=1080]+ba[ext=m4a]/b[ext=mp4]/bv*+ba/b",
+    "bv*+ba/b",
     "--merge-output-format",
     "mp4",
     "--no-playlist",

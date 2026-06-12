@@ -263,7 +263,9 @@ export function Display() {
   const queueLen = queue.filter((b) => !["DONE", "REJECTED", "SKIPPED"].includes(b.status)).length;
 
   return (
-    <div className="kg-page-bg flex min-h-dvh flex-col">
+    <div className="kg-page-bg flex h-dvh flex-col overflow-hidden">
+      {/* l'header (PIN, banco, coda) serve in attesa: durante l'esibizione tutto lo schermo è palco */}
+      {!live && (
       <header className="flex flex-wrap items-center justify-between gap-4 border-b border-zinc-800/80 bg-zinc-950/40 px-4 py-4 backdrop-blur-md md:px-8">
         <div>
           <p className="font-display text-[10px] uppercase tracking-[0.45em] text-fuchsia-400/90">Schermo sala</p>
@@ -291,8 +293,9 @@ export function Display() {
           </div>
         </div>
       </header>
+      )}
 
-      <main className="relative flex flex-1 flex-col px-4 py-8 text-center md:px-10">
+      <main className={`relative flex min-h-0 flex-1 flex-col px-4 text-center md:px-10 ${live ? "py-4" : "overflow-y-auto py-8"}`}>
         {error && <p className="text-sm text-red-400">{error}</p>}
         {ytHint && (
           <p className="text-sm text-amber-200/90" role="status">
@@ -301,8 +304,9 @@ export function Display() {
         )}
 
         {live ? (
-          <div className="flex flex-1 flex-col items-center gap-6 md:gap-10">
-            <div className="flex flex-wrap items-center justify-center gap-4">
+          <div className="flex min-h-0 flex-1 flex-col items-center gap-4 md:gap-5">
+            {/* unica riga in alto durante l'esibizione: nome, voti e titolo; il resto è palco */}
+            <div className="flex w-full flex-wrap items-center justify-center gap-x-4 gap-y-2">
               <p className="font-display text-xl text-zinc-300 md:text-2xl">
                 <span className="font-semibold text-white">{live.user.nickname}</span>
                 <span className="text-zinc-500"> · </span>
@@ -314,6 +318,11 @@ export function Display() {
                   ({voteCount} {voteCount === 1 ? "voto" : "voti"})
                 </span>
               </p>
+              {live.song?.source !== "MIDI" && (
+                <p className="max-w-xl truncate text-sm text-zinc-500">
+                  {live.booking?.ytTitle ?? live.song?.title ?? ""}
+                </p>
+              )}
             </div>
             {live.song?.source === "MIDI" && live.song.midiPath ? (
               <KaraokePlayer
@@ -331,7 +340,6 @@ export function Display() {
                 key={live.performance.id}
                 bookingId={live.booking.id}
                 title={live.song.title}
-                nickname={live.user.nickname}
                 onTick={handleTick}
               />
             ) : live.booking?.ytUrl ? (
@@ -339,7 +347,6 @@ export function Display() {
                 key={live.performance.id}
                 ytUrl={live.booking.ytUrl}
                 title={live.booking.ytTitle ?? live.song?.title ?? "Brano YouTube"}
-                nickname={live.user.nickname}
               />
             ) : (
               <div className="flex max-w-4xl flex-col items-center gap-6">
@@ -433,15 +440,17 @@ export function Display() {
         )}
       </main>
 
-      <footer className="border-t border-zinc-800/80 px-4 py-3 text-center text-xs text-zinc-600 md:px-8">
-        <Link to="/join" className="hover:text-zinc-400">
-          Area pubblico
-        </Link>
-        <span className="mx-2 text-zinc-800">|</span>
-        <Link to="/admin" className="hover:text-zinc-400">
-          Admin
-        </Link>
-      </footer>
+      {!live && (
+        <footer className="border-t border-zinc-800/80 px-4 py-3 text-center text-xs text-zinc-600 md:px-8">
+          <Link to="/join" className="hover:text-zinc-400">
+            Area pubblico
+          </Link>
+          <span className="mx-2 text-zinc-800">|</span>
+          <Link to="/admin" className="hover:text-zinc-400">
+            Admin
+          </Link>
+        </footer>
+      )}
     </div>
   );
 }

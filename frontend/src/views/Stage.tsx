@@ -12,6 +12,7 @@ const socketUrl = import.meta.env.VITE_API_URL || (typeof window !== "undefined"
 type LiveState = {
   performanceId: string;
   songId: string | null;
+  source: string | null;
   title: string;
   artist: string;
   nickname: string;
@@ -73,10 +74,11 @@ export function Stage() {
     return () => cancelAnimationFrame(rafRef.current);
   }, [live]);
 
-  // Testi del brano corrente: file .lrc se presente, altrimenti i lyric incorporati nel MIDI
+  // Testi del brano corrente: file .lrc se presente, altrimenti i lyric incorporati nel MIDI.
+  // Per i video YouTube niente testi: ci sono già nel video.
   useEffect(() => {
     setLrcLines([]);
-    if (!live?.songId) return;
+    if (!live?.songId || live.source === "YOUTUBE") return;
     const songId = live.songId;
     let cancelled = false;
     void (async () => {
@@ -101,7 +103,7 @@ export function Stage() {
     return () => {
       cancelled = true;
     };
-  }, [live?.songId, live?.lrcPath]);
+  }, [live?.songId, live?.lrcPath, live?.source]);
 
   useEffect(() => {
     if (!eventId) return;
@@ -112,12 +114,13 @@ export function Stage() {
     function applyLive(payload: {
       performance: { id: string };
       booking?: { ytTitle?: string | null } | null;
-      song: { id: string; title: string; artist: string; lrcPath?: string | null } | null;
+      song: { id: string; title: string; artist: string; source?: string; lrcPath?: string | null } | null;
       user: { nickname: string };
     }) {
       setLive({
         performanceId: payload.performance.id,
         songId: payload.song?.id ?? null,
+        source: payload.song?.source ?? (payload.booking?.ytTitle != null || !payload.song ? "YOUTUBE" : null),
         title: payload.song?.title ?? payload.booking?.ytTitle ?? "Brano YouTube",
         artist: payload.song?.artist ?? "",
         nickname: payload.user.nickname,

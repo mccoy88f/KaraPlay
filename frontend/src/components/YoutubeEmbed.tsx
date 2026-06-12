@@ -3,7 +3,6 @@ import { useState } from "react";
 type Props = {
   ytUrl: string;
   title: string;
-  nickname?: string;
 };
 
 /** Estrae l'id video dalle forme comuni di URL YouTube (watch, youtu.be, shorts, embed). */
@@ -27,9 +26,10 @@ export function youtubeVideoId(url: string): string | null {
 
 /**
  * Riproduce il video YouTube direttamente (l'audio è già nel video, niente download).
- * L'iframe parte dopo un click: il gesto utente abilita l'autoplay con audio.
+ * L'iframe parte dopo un click e riempe tutto lo spazio disponibile:
+ * il display lascia in alto solo nome e voti.
  */
-export function YoutubeEmbed({ ytUrl, title, nickname }: Props) {
+export function YoutubeEmbed({ ytUrl, title }: Props) {
   const [started, setStarted] = useState(false);
   const videoId = youtubeVideoId(ytUrl);
 
@@ -43,33 +43,21 @@ export function YoutubeEmbed({ ytUrl, title, nickname }: Props) {
   }
 
   return (
-    <div className="flex w-full max-w-6xl flex-col items-center gap-6">
-      <div>
-        <h1 className="font-display text-3xl font-bold text-white md:text-5xl">{title}</h1>
-        <p className="mt-3 flex flex-wrap items-center justify-center gap-2 text-xs uppercase tracking-widest text-zinc-500">
-          <span className="rounded-full border border-red-500/40 bg-red-500/10 px-3 py-1 text-red-200/90">
+    <div className="relative min-h-0 w-full flex-1 overflow-hidden rounded-2xl border border-zinc-800 bg-black shadow-2xl shadow-black/60">
+      {started ? (
+        <iframe
+          className="h-full w-full"
+          src={`https://www.youtube-nocookie.com/embed/${encodeURIComponent(videoId)}?autoplay=1&rel=0&modestbranding=1`}
+          title={title}
+          allow="autoplay; encrypted-media; picture-in-picture"
+          allowFullScreen
+        />
+      ) : (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-black/60 px-6 text-center">
+          <p className="font-display max-w-3xl text-2xl font-semibold text-white md:text-4xl">{title}</p>
+          <span className="rounded-full border border-red-500/40 bg-red-500/10 px-3 py-1 text-xs uppercase tracking-widest text-red-200/90">
             🎬 Free Style · YouTube
           </span>
-          {nickname && (
-            <span className="rounded-full border border-zinc-700 bg-zinc-900/80 px-3 py-1 text-zinc-400">
-              {nickname}
-            </span>
-          )}
-        </p>
-      </div>
-
-      {started ? (
-        <div className="aspect-video w-full overflow-hidden rounded-2xl border border-zinc-800 bg-black shadow-2xl shadow-black/60">
-          <iframe
-            className="h-full w-full"
-            src={`https://www.youtube-nocookie.com/embed/${encodeURIComponent(videoId)}?autoplay=1&rel=0&modestbranding=1`}
-            title={title}
-            allow="autoplay; encrypted-media; picture-in-picture"
-            allowFullScreen
-          />
-        </div>
-      ) : (
-        <div className="flex max-w-lg flex-col items-center gap-3">
           <button
             type="button"
             onClick={() => setStarted(true)}
@@ -77,7 +65,7 @@ export function YoutubeEmbed({ ytUrl, title, nickname }: Props) {
           >
             ▶ Avvia video
           </button>
-          <p className="text-center text-xs text-zinc-500">
+          <p className="text-xs text-zinc-400">
             Il browser richiede un tap su questo pulsante per avviare il video con l&apos;audio.
           </p>
         </div>

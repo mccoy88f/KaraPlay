@@ -616,6 +616,7 @@ export function LiveConsole({ authHeader }: Props) {
                       {b.ytProcessError && (
                         <p className="text-xs text-red-400" title={b.ytProcessError}>
                           Download fallito (partirà col player YouTube): {b.ytProcessError.slice(0, 80)}
+                          <span className="text-zinc-500"> — spesso si risolve caricando i cookies in 🔧 Tecnico → YouTube</span>
                         </p>
                       )}
                     </div>
