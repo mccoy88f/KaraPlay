@@ -106,8 +106,16 @@ le voci `[ ]` restano da fare per arrivare a un progetto completo e funzionante 
   email → codice OTP → verifica (richiede SMTP configurato per l'invio reale).
 - [x] **QR code sul display**: nella schermata di attesa, con PIN e link diretto
   `/join/enter?pin=…` (campo PIN precompilato).
-- [x] **Creazione serate da admin**: sezione "Serate" nel pannello (elenco con PIN/stato/
-  contatori + form di creazione con PIN opzionale); nuova `GET /api/admin/events`.
+- [x] **Creazione serate da admin** con `GET /api/admin/events`.
+- [x] **Pannello host ridisegnato per chi presenta** (non per tecnici): due aree,
+  **Conduzione** (scelta serata da menu — niente più PIN da digitare —, scaletta che si
+  aggiorna da sola via socket, richieste in attesa con Approva/Rifiuta a un tap e
+  miniatura YouTube, card "Ora sul palco" con voti live e pulsante Concludi, stato
+  serata con etichette parlanti, impostazioni audio richiudibili) e **Tecnico**
+  (catalogo MIDI, debug, cookies — cose da fare una volta sola).
+- [x] **Anteprima brani per il pubblico**: nel catalogo MIDI un tasto ▶ suona ~25s del
+  brano (3 strumenti principali, banco Fluid R3); nei risultati YouTube la miniatura
+  apre il video in anteprima inline prima di richiederlo.
 
 ## 6. Robustezza e sicurezza
 

@@ -9,6 +9,7 @@ import {
   type YoutubeSearchResult,
 } from "../api/client";
 import { getSoundfontBank } from "../lib/soundfontBanks";
+import { MidiPreviewButton } from "./MidiPreviewButton";
 
 function formatDuration(seconds: number): string {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
@@ -31,6 +32,8 @@ export function BookCatalog() {
   const [ytResults, setYtResults] = useState<YoutubeSearchResult[]>([]);
   const [ytSearching, setYtSearching] = useState(false);
   const [ytSearched, setYtSearched] = useState(false);
+  /** Id del video con l'anteprima aperta (una alla volta). */
+  const [ytPreviewId, setYtPreviewId] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -181,15 +184,16 @@ export function BookCatalog() {
             {filtered.map((s) => (
               <li
                 key={s.id}
-                className="flex flex-col gap-2 rounded-lg border border-zinc-800 bg-zinc-950/60 p-3 sm:flex-row sm:items-center sm:justify-between"
+                className="flex items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-950/60 p-3"
               >
-                <div>
-                  <p className="font-medium text-white">{s.title}</p>
-                  <p className="text-sm text-zinc-400">{s.artist}</p>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-medium text-white">{s.title}</p>
+                  <p className="truncate text-sm text-zinc-400">{s.artist}</p>
                   {s.duration != null && (
                     <p className="text-xs text-zinc-600">{formatDuration(s.duration)}</p>
                   )}
                 </div>
+                <MidiPreviewButton songId={s.id} />
                 <button
                   type="button"
                   disabled={bookingId === s.id}
@@ -239,37 +243,52 @@ export function BookCatalog() {
 
           <ul className="mt-4 max-h-80 space-y-2 overflow-y-auto">
             {ytResults.map((r) => (
-              <li
-                key={r.id}
-                className="flex items-center gap-3 rounded-lg border border-zinc-800 bg-zinc-950/60 p-3"
-              >
-                {r.thumbnail && (
-                  <img
-                    src={r.thumbnail}
-                    alt=""
-                    className="h-12 w-20 shrink-0 rounded object-cover"
-                    loading="lazy"
-                  />
-                )}
-                <div className="min-w-0 flex-1">
-                  <p className="truncate font-medium text-white" title={r.title}>
-                    {r.title}
-                  </p>
-                  <p className="truncate text-sm text-zinc-400">
-                    {r.channel}
-                    {r.duration != null && (
-                      <span className="text-zinc-600"> · {formatDuration(r.duration)}</span>
+              <li key={r.id} className="rounded-lg border border-zinc-800 bg-zinc-950/60 p-3">
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    title={ytPreviewId === r.id ? "Chiudi anteprima" : "Guarda l'anteprima"}
+                    onClick={() => setYtPreviewId((cur) => (cur === r.id ? null : r.id))}
+                    className="relative shrink-0 overflow-hidden rounded"
+                  >
+                    {r.thumbnail && (
+                      <img src={r.thumbnail} alt="" className="h-12 w-20 object-cover" loading="lazy" />
                     )}
-                  </p>
+                    <span className="absolute inset-0 flex items-center justify-center bg-black/40 text-white">
+                      {ytPreviewId === r.id ? "✕" : "▶"}
+                    </span>
+                  </button>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-medium text-white" title={r.title}>
+                      {r.title}
+                    </p>
+                    <p className="truncate text-sm text-zinc-400">
+                      {r.channel}
+                      {r.duration != null && (
+                        <span className="text-zinc-600"> · {formatDuration(r.duration)}</span>
+                      )}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={bookingId === r.id}
+                    onClick={() => void bookYt(r)}
+                    className="shrink-0 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-500 disabled:opacity-50"
+                  >
+                    {bookingId === r.id ? "…" : "Richiedi"}
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  disabled={bookingId === r.id}
-                  onClick={() => void bookYt(r)}
-                  className="shrink-0 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-500 disabled:opacity-50"
-                >
-                  {bookingId === r.id ? "…" : "Richiedi"}
-                </button>
+                {ytPreviewId === r.id && (
+                  <div className="mt-3 aspect-video w-full overflow-hidden rounded-lg border border-zinc-800 bg-black">
+                    <iframe
+                      className="h-full w-full"
+                      src={`https://www.youtube-nocookie.com/embed/${encodeURIComponent(r.id)}?autoplay=1&rel=0`}
+                      title={`Anteprima: ${r.title}`}
+                      allow="autoplay; encrypted-media"
+                      allowFullScreen
+                    />
+                  </div>
+                )}
               </li>
             ))}
           </ul>
