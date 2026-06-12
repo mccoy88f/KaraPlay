@@ -1,5 +1,6 @@
 import { startTransition, useCallback, useEffect, useRef, useState } from "react";
 import { extractMidiMeta } from "../../lib/midiMeta";
+import { MidiBulkImport } from "./MidiBulkImport";
 
 const base = import.meta.env.VITE_API_URL ?? "";
 
@@ -354,6 +355,12 @@ export function MidiCatalogSection({ authHeader }: Props) {
           </tbody>
         </table>
       </div>
+
+      <MidiBulkImport
+        authHeader={authHeader}
+        existingFileNames={songs.map((s2) => (s2.fileName ?? "").toLowerCase()).filter(Boolean)}
+        onDone={() => void loadSongs()}
+      />
 
       {editing && (
         <form onSubmit={(e) => void saveEdit(e)} className="mt-6 rounded-xl border border-fuchsia-500/30 bg-zinc-950/60 p-4">
