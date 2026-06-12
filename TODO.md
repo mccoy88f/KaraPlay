@@ -120,7 +120,11 @@ le voci `[ ]` restano da fare per arrivare a un progetto completo e funzionante 
 
 ## 6. Robustezza e sicurezza
 
-- [ ] `ADMIN_TOKEN` statico come unica autenticazione admin: valutare login host con password + JWT.
+- [x] **Login admin con username/password + JWT** (via `ADMIN_TOKEN` statico): seed
+  `admin`/`admin` (SUPERADMIN, password da cambiare al primo accesso). Due ruoli:
+  il super admin gestisce server (catalogo, soundfont, debug) e crea/elimina gli
+  admin; gli admin gestiscono solo le proprie serate. Cookies YouTube personali
+  per ogni account (usati per ricerca e download delle serate di quell'admin).
 - [ ] Rate limiting su endpoint pubblici (join, ricerca YouTube) — es. `@fastify/rate-limit`.
 - [ ] Validazione/dimensione upload MIDI-LRC più stringente e scansione dei tag del file.
 - [ ] Test automatici (oggi assenti): unit per servizi backend, e2e per il flusso prenotazione.

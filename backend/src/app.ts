@@ -3,6 +3,7 @@ import cors from "@fastify/cors";
 import jwt from "@fastify/jwt";
 import multipart from "@fastify/multipart";
 import { registerAuthRoutes } from "./routes/auth.js";
+import { registerAdminAuthRoutes } from "./routes/admin-auth.js";
 import { registerEventRoutes } from "./routes/events.js";
 import { registerSongRoutes } from "./routes/songs.js";
 import { registerBookingRoutes } from "./routes/bookings.js";
@@ -46,6 +47,7 @@ export async function buildApp() {
   app.get("/health", async () => ({ ok: true }));
 
   await app.register(registerAuthRoutes, { prefix: "/api/auth" });
+  await app.register(registerAdminAuthRoutes, { prefix: "/api" });
   await app.register(registerEventRoutes, { prefix: "/api" });
   await app.register(registerSongRoutes, { prefix: "/api" });
   await app.register(registerBookingRoutes, { prefix: "/api" });

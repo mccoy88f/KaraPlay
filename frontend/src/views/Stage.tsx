@@ -244,9 +244,6 @@ export function Stage() {
                 <div>
                   <h1 className="font-display text-5xl font-bold text-white md:text-7xl">{live.title}</h1>
                   {live.artist && <p className="mt-4 text-2xl text-zinc-400">{live.artist}</p>}
-                  <p className="mt-8 text-lg text-zinc-500">
-                    Nessun testo sincronizzato per questo brano: Free Style! 🎶
-                  </p>
                 </div>
               )}
             </div>

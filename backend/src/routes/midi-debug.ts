@@ -3,7 +3,7 @@ import path from "node:path";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { prisma } from "../lib/prisma.js";
 import { analyzeMidiBuffer } from "../lib/midiDebug.js";
-import { requireAdmin } from "../middleware/admin.js";
+import { requireSuperAdmin } from "../middleware/admin.js";
 import { getStorageRoot } from "../lib/storage.js";
 
 /** Stessi host del proxy test (evita SSRF). */
@@ -50,7 +50,7 @@ async function fetchMidiRemote(sourceUrl: string, reply: FastifyReply): Promise<
 export async function registerMidiDebugRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.get<{ Params: { songId: string } }>(
     "/admin/songs/:songId/midi-debug",
-    { preHandler: [requireAdmin] },
+    { preHandler: [requireSuperAdmin] },
     async (request, reply) => {
       const song = await prisma.song.findUnique({
         where: { id: request.params.songId },
@@ -79,7 +79,7 @@ export async function registerMidiDebugRoutes(fastify: FastifyInstance): Promise
 
   fastify.get<{ Querystring: { url?: string } }>(
     "/admin/midi-debug/by-url",
-    { preHandler: [requireAdmin] },
+    { preHandler: [requireSuperAdmin] },
     async (request, reply) => {
       const raw = request.query.url?.trim();
       if (!raw) {

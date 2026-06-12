@@ -1,7 +1,8 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
-import { requireAdmin } from "../middleware/admin.js";
+import { canManageEvent, requireAdmin } from "../middleware/admin.js";
+import type { JwtPayload } from "../types/jwt.js";
 import { getIo } from "../socket/io.js";
 import { emitQueueUpdate } from "../socket/emit.js";
 
@@ -25,6 +26,9 @@ export async function registerAdminQueueRoutes(fastify: FastifyInstance): Promis
       });
       if (!booking) {
         return reply.code(404).send({ error: "Prenotazione non trovata" });
+      }
+      if (!(await canManageEvent(request.user as JwtPayload, booking.eventId))) {
+        return reply.code(403).send({ error: "Questa serata è gestita da un altro admin" });
       }
 
       const list = await prisma.booking.findMany({
@@ -63,6 +67,9 @@ export async function registerAdminQueueRoutes(fastify: FastifyInstance): Promis
       });
       if (!booking) {
         return reply.code(404).send({ error: "Prenotazione non trovata" });
+      }
+      if (!(await canManageEvent(request.user as JwtPayload, booking.eventId))) {
+        return reply.code(403).send({ error: "Questa serata è gestita da un altro admin" });
       }
 
       const eventId = booking.eventId;

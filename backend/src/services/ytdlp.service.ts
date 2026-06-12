@@ -9,8 +9,8 @@ export type VideoMeta = {
   id: string;
 };
 
-function cookiesArgs(): string[] {
-  const p = resolveYoutubeCookiesPath();
+function cookiesArgs(adminId?: string | null): string[] {
+  const p = resolveYoutubeCookiesPath(adminId);
   if (!p) return [];
   return ["--cookies", p];
 }
@@ -34,14 +34,14 @@ function runYtDlp(args: string[]): Promise<{ stdout: string; stderr: string; cod
 /**
  * Metadati senza scaricare audio (utile per preview e admin).
  */
-export async function previewUrl(url: string): Promise<VideoMeta> {
+export async function previewUrl(url: string, cookiesAdminId?: string | null): Promise<VideoMeta> {
   const args = [
     "--dump-single-json",
     "--no-download",
     "--skip-download",
     "--no-warnings",
     "--no-playlist",
-    ...cookiesArgs(),
+    ...cookiesArgs(cookiesAdminId),
     url,
   ];
   const { stdout, stderr, code } = await runYtDlp(args);
@@ -86,13 +86,13 @@ export type YoutubeSearchResult = {
  * Ricerca su YouTube (yt-dlp ytsearch). --flat-playlist evita di risolvere ogni video: veloce,
  * ma la durata può mancare per alcuni risultati.
  */
-export async function searchYoutube(query: string, limit = 8): Promise<YoutubeSearchResult[]> {
+export async function searchYoutube(query: string, limit = 8, cookiesAdminId?: string | null): Promise<YoutubeSearchResult[]> {
   const n = Math.min(Math.max(Math.trunc(limit), 1), 15);
   const args = [
     "--dump-json",
     "--flat-playlist",
     "--no-warnings",
-    ...cookiesArgs(),
+    ...cookiesArgs(cookiesAdminId),
     `ytsearch${n}:${query}`,
   ];
   const { stdout, stderr, code } = await runYtDlp(args);
@@ -141,7 +141,8 @@ export type DownloadProgress = { percent: number | null; line: string };
 export async function downloadVideoMp4(
   url: string,
   outputBasePathWithoutExt: string,
-  onProgress?: (p: DownloadProgress) => void
+  onProgress?: (p: DownloadProgress) => void,
+  cookiesAdminId?: string | null
 ): Promise<string> {
   const args = [
     "-f",
@@ -154,7 +155,7 @@ export async function downloadVideoMp4(
     "--progress",
     "-o",
     `${outputBasePathWithoutExt}.%(ext)s`,
-    ...cookiesArgs(),
+    ...cookiesArgs(cookiesAdminId),
     url,
   ];
 

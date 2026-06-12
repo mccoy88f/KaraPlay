@@ -22,8 +22,9 @@ Lo stack si avvia direttamente dal repository, senza clonare nulla a mano:
 4. (Opzionale) aggiungi le env `JWT_SECRET`, `SMTP_*` nella sezione *Environment variables*
 5. **Deploy the stack** — Portainer builda le immagini di frontend e backend da solo
 
-Al primo avvio il backend applica le migrazioni e il seed (serata demo con PIN
-`000000`). L'app è su `http://<host>:8083`.
+Al primo avvio il backend applica le migrazioni e il seed: serata demo con PIN
+`000000` e **super admin `admin` / `admin`** (cambia subito la password da
+`/admin` → Account). L'app è su `http://<host>:8083`.
 
 ## Interfacce
 
@@ -31,7 +32,7 @@ Al primo avvio il backend applica le migrazioni e il seed (serata demo con PIN
 |---|---|
 | `/join` | Pubblico (smartphone) |
 | `/display` | Proiettore / TV |
-| `/admin` | Host / DJ |
+| `/admin` | Host / DJ (login richiesto) |
 | `/stage` | Cantante sul palco |
 
 ## Sviluppo locale

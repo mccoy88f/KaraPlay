@@ -2,12 +2,14 @@ import { unlink, writeFile, stat } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { requireAdmin } from "../middleware/admin.js";
+import { canManageEvent, requireAdmin } from "../middleware/admin.js";
 import {
   ensureStorageLayout,
-  getDefaultYoutubeCookiesPath,
+  getAdminCookiesPath,
   resolveYoutubeCookiesPath,
 } from "../lib/storage.js";
+import { prisma } from "../lib/prisma.js";
+import type { JwtPayload } from "../types/jwt.js";
 import { previewUrl, searchYoutube } from "../services/ytdlp.service.js";
 import { requireJwt } from "../middleware/jwt.js";
 import { fetchLrcFromLrclib } from "../services/lrclib.service.js";
@@ -28,8 +30,12 @@ export async function registerYoutubeRoutes(fastify: FastifyInstance): Promise<v
         return reply.code(400).send({ error: "Parametro q troppo corto (min 2 caratteri)" });
       }
       const limit = request.query.limit ? Number(request.query.limit) : 8;
+      const jwt = request.user as JwtPayload;
+      const event = jwt.eventId
+        ? await prisma.event.findUnique({ where: { id: jwt.eventId }, select: { adminId: true } })
+        : null;
       try {
-        const results = await searchYoutube(q, Number.isFinite(limit) ? limit : 8);
+        const results = await searchYoutube(q, Number.isFinite(limit) ? limit : 8, event?.adminId);
         return reply.send({ results });
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
@@ -74,32 +80,29 @@ export async function registerYoutubeRoutes(fastify: FastifyInstance): Promise<v
     }
   );
 
+  /** Stato dei cookies PERSONALI dell'admin loggato (ogni admin ha il proprio file). */
   fastify.get(
     "/admin/youtube/cookies-status",
     { preHandler: [requireAdmin] },
-    async (_request, reply) => {
-      const resolved = resolveYoutubeCookiesPath();
-      const def = getDefaultYoutubeCookiesPath();
-      const fromEnv = Boolean(process.env.YOUTUBE_COOKIES_PATH?.trim());
-      if (!resolved) {
-        return reply.send({
-          configured: false,
-          source: fromEnv ? "env" : "admin",
-          hint: "Carica un file cookies Netscape da Admin o imposta YOUTUBE_COOKIES_PATH",
-        });
-      }
-      try {
-        const s = await stat(resolved);
+    async (request, reply) => {
+      const jwt = request.user as JwtPayload;
+      const own = getAdminCookiesPath(jwt.sub);
+      if (existsSync(own)) {
+        const s = await stat(own);
         return reply.send({
           configured: true,
-          path: resolved,
-          source: fromEnv && resolved === process.env.YOUTUBE_COOKIES_PATH?.trim() ? "env" : "admin",
+          source: "personal",
           size: s.size,
           mtime: s.mtime.toISOString(),
         });
-      } catch {
-        return reply.send({ configured: false, error: "File non leggibile" });
       }
+      const fallback = resolveYoutubeCookiesPath();
+      return reply.send({
+        configured: false,
+        source: "personal",
+        fallback: fallback ? "globale (env o file condiviso)" : null,
+        hint: "Carica i tuoi cookies (formato Netscape): valgono per le tue serate",
+      });
     }
   );
 
@@ -107,6 +110,7 @@ export async function registerYoutubeRoutes(fastify: FastifyInstance): Promise<v
     "/admin/youtube/cookies",
     { preHandler: [requireAdmin] },
     async (request, reply) => {
+      const jwt = request.user as JwtPayload;
       const file = await request.file();
       if (!file) {
         return reply.code(400).send({ error: "Nessun file (field name: file)" });
@@ -116,12 +120,10 @@ export async function registerYoutubeRoutes(fastify: FastifyInstance): Promise<v
         return reply.code(400).send({ error: "File troppo grande (max 2MB)" });
       }
       await ensureStorageLayout();
-      const dest = getDefaultYoutubeCookiesPath();
-      await writeFile(dest, buf);
+      await writeFile(getAdminCookiesPath(jwt.sub), buf);
       return reply.send({
         ok: true,
-        savedAs: "cookies/youtube.txt",
-        note: "Riavvia l'elaborazione se yt-dlp falliva per autenticazione",
+        note: "Cookies personali salvati: usati per ricerca e download delle tue serate",
       });
     }
   );
@@ -129,10 +131,11 @@ export async function registerYoutubeRoutes(fastify: FastifyInstance): Promise<v
   fastify.delete(
     "/admin/youtube/cookies",
     { preHandler: [requireAdmin] },
-    async (_request, reply) => {
-      const def = getDefaultYoutubeCookiesPath();
-      if (existsSync(def)) {
-        await unlink(def);
+    async (request, reply) => {
+      const jwt = request.user as JwtPayload;
+      const own = getAdminCookiesPath(jwt.sub);
+      if (existsSync(own)) {
+        await unlink(own);
       }
       return reply.send({ ok: true });
     }
@@ -143,6 +146,16 @@ export async function registerYoutubeRoutes(fastify: FastifyInstance): Promise<v
     "/admin/youtube/process/:bookingId",
     { preHandler: [requireAdmin] },
     async (request, reply) => {
+      const booking = await prisma.booking.findUnique({
+        where: { id: request.params.bookingId },
+        select: { eventId: true },
+      });
+      if (!booking) {
+        return reply.code(404).send({ error: "Prenotazione non trovata" });
+      }
+      if (!(await canManageEvent(request.user as JwtPayload, booking.eventId))) {
+        return reply.code(403).send({ error: "Questa serata è gestita da un altro admin" });
+      }
       try {
         await startYoutubeProcess(request.params.bookingId);
         return reply.code(202).send({ ok: true, message: "Download video avviato" });

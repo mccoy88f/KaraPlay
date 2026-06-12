@@ -22,7 +22,6 @@ services:
     environment:
       DATABASE_URL: postgresql://karaoke:password@db:5432/karaokedb
       JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me}
-      ADMIN_TOKEN: ${ADMIN_TOKEN:-dev-admin-token}
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_USER: ${SMTP_USER:-}

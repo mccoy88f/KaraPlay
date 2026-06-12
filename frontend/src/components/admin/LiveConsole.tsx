@@ -50,9 +50,11 @@ function formatMB(bytes: number): string {
 
 type Props = {
   authHeader: () => Record<string, string>;
+  /** Solo il super admin può modificare i file del server (sync banchi, upload/delete sf2). */
+  isSuper: boolean;
 };
 
-export function LiveConsole({ authHeader }: Props) {
+export function LiveConsole({ authHeader, isSuper }: Props) {
   const [events, setEvents] = useState<AdminEvent[]>([]);
   const [eventId, setEventId] = useState<string | null>(() => localStorage.getItem(ADMIN_EVENT_KEY));
   const [queue, setQueue] = useState<QueueBooking[]>([]);
@@ -716,16 +718,24 @@ export function LiveConsole({ authHeader }: Props) {
                       )}
                     </p>
                   )}
-                  {!isSf2BankId(soundfontBankId) && (
-                    <button
-                      type="button"
-                      disabled={sfSyncing}
-                      onClick={() => void syncSoundfont()}
-                      className="mt-3 rounded-lg border border-cyan-500/40 bg-cyan-500/15 px-3 py-2 text-sm text-cyan-100 hover:bg-cyan-500/25 disabled:opacity-40"
-                    >
-                      {sfSyncing ? "Download in corso…" : "Scarica suoni sul server"}
-                    </button>
-                  )}
+                  {!isSf2BankId(soundfontBankId) &&
+                    (isSuper ? (
+                      <button
+                        type="button"
+                        disabled={sfSyncing}
+                        onClick={() => void syncSoundfont()}
+                        className="mt-3 rounded-lg border border-cyan-500/40 bg-cyan-500/15 px-3 py-2 text-sm text-cyan-100 hover:bg-cyan-500/25 disabled:opacity-40"
+                      >
+                        {sfSyncing ? "Download in corso…" : "Scarica suoni sul server"}
+                      </button>
+                    ) : (
+                      sfStatus &&
+                      !sfStatus.ready && (
+                        <p className="mt-3 text-xs text-amber-300/90">
+                          Suoni non ancora sul server: chiedi al super admin di scaricarli.
+                        </p>
+                      )
+                    ))}
                 </div>
                 <div className="rounded-lg border border-zinc-800 bg-zinc-950/60 p-3">
                   <p className="text-xs font-medium uppercase tracking-wider text-zinc-500">
@@ -737,33 +747,41 @@ export function LiveConsole({ authHeader }: Props) {
                         <span className="truncate font-mono text-xs" title={f.file}>
                           {f.file} <span className="text-zinc-600">({formatMB(f.size)})</span>
                         </span>
-                        <button
-                          type="button"
-                          onClick={() => void deleteSf2(f.file)}
-                          className="rounded border border-red-500/50 px-2 py-0.5 text-xs text-red-200 hover:bg-red-900/50"
-                        >
-                          Elimina
-                        </button>
+                        {isSuper && (
+                          <button
+                            type="button"
+                            onClick={() => void deleteSf2(f.file)}
+                            className="rounded border border-red-500/50 px-2 py-0.5 text-xs text-red-200 hover:bg-red-900/50"
+                          >
+                            Elimina
+                          </button>
+                        )}
                       </li>
                     ))}
                     {sf2Files.length === 0 && <li className="text-xs text-zinc-600">Nessun file caricato.</li>}
                   </ul>
-                  <label className="mt-3 inline-block">
-                    <span className="cursor-pointer rounded-lg border border-fuchsia-500/40 bg-fuchsia-500/15 px-3 py-2 text-sm text-fuchsia-100 hover:bg-fuchsia-500/25">
-                      {sf2Uploading ? "Caricamento…" : "Carica .sf2"}
-                    </span>
-                    <input
-                      ref={sf2InputRef}
-                      type="file"
-                      accept=".sf2,.sf3"
-                      disabled={sf2Uploading}
-                      className="hidden"
-                      onChange={(e) => {
-                        const f = e.target.files?.[0];
-                        if (f) void uploadSf2(f);
-                      }}
-                    />
-                  </label>
+                  {isSuper ? (
+                    <label className="mt-3 inline-block">
+                      <span className="cursor-pointer rounded-lg border border-fuchsia-500/40 bg-fuchsia-500/15 px-3 py-2 text-sm text-fuchsia-100 hover:bg-fuchsia-500/25">
+                        {sf2Uploading ? "Caricamento…" : "Carica .sf2"}
+                      </span>
+                      <input
+                        ref={sf2InputRef}
+                        type="file"
+                        accept=".sf2,.sf3"
+                        disabled={sf2Uploading}
+                        className="hidden"
+                        onChange={(e) => {
+                          const f = e.target.files?.[0];
+                          if (f) void uploadSf2(f);
+                        }}
+                      />
+                    </label>
+                  ) : (
+                    <p className="mt-3 text-xs text-zinc-600">
+                      Caricamento ed eliminazione gestiti dal super admin.
+                    </p>
+                  )}
                 </div>
               </div>
             )}

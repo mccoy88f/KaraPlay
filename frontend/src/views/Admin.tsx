@@ -1,90 +1,178 @@
-import { startTransition, useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { LiveConsole } from "../components/admin/LiveConsole";
+import { AccountSection } from "../components/admin/AccountSection";
 import { MidiCatalogSection } from "../components/admin/MidiCatalogSection";
 import { MidiDebugSection } from "../components/admin/MidiDebugSection";
 
 const base = import.meta.env.VITE_API_URL ?? "";
+const ADMIN_TOKEN_KEY = "karaoke_admin_jwt";
 
-/** Header opzionale per le fetch admin (nessun bearer fino al login admin vero). */
-function emptyHeaders(): Record<string, string> {
-  return {};
-}
+type AdminMe = { id: string; username: string; role: "SUPERADMIN" | "ADMIN" };
 
 export function Admin() {
-  const [tab, setTab] = useState<"console" | "tech">("console");
-  const [cookiesStatus, setCookiesStatus] = useState<Record<string, unknown> | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [token, setToken] = useState<string | null>(() => localStorage.getItem(ADMIN_TOKEN_KEY));
+  const [me, setMe] = useState<AdminMe | null>(null);
+  const [checking, setChecking] = useState(true);
+  const [tab, setTab] = useState<"console" | "account" | "tech">("console");
 
-  const authHeader = useCallback(() => emptyHeaders(), []);
+  // login form
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [loginBusy, setLoginBusy] = useState(false);
+  const [loginErr, setLoginErr] = useState<string | null>(null);
 
-  const loadCookiesStatus = useCallback(async () => {
-    setError(null);
-    const res = await fetch(`${base}/api/admin/youtube/cookies-status`, {
-      headers: { ...authHeader() },
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      setError(
-        (data as { hint?: string }).hint ?? (data as { error?: string }).error ?? "Errore stato cookies"
-      );
-      return;
-    }
-    setCookiesStatus(data as Record<string, unknown>);
-  }, [authHeader]);
+  const authHeader = useCallback(
+    (): Record<string, string> => (token ? { Authorization: `Bearer ${token}` } : {}),
+    [token]
+  );
 
+  // verifica del token salvato (scaduto/utente eliminato → si torna al login)
   useEffect(() => {
-    if (tab !== "tech") return;
-    startTransition(() => {
-      void loadCookiesStatus();
-    });
-  }, [tab, loadCookiesStatus]);
-
-  async function uploadCookies(file: File | null) {
-    if (!file) return;
-    setMessage(null);
-    setError(null);
-    const body = new FormData();
-    body.append("file", file);
-    const res = await fetch(`${base}/api/admin/youtube/cookies`, {
-      method: "POST",
-      headers: authHeader(),
-      body,
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      setError((data as { error?: string }).error ?? "Upload fallito");
+    let cancelled = false;
+    if (!token) {
+      setMe(null);
+      setChecking(false);
       return;
     }
-    setMessage("File cookies salvato. yt-dlp userà questo file per YouTube.");
-    await loadCookiesStatus();
-  }
+    setChecking(true);
+    void (async () => {
+      try {
+        const res = await fetch(`${base}/api/admin/auth/me`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = await res.json().catch(() => ({}));
+        if (cancelled) return;
+        if (!res.ok) {
+          localStorage.removeItem(ADMIN_TOKEN_KEY);
+          setToken(null);
+          setMe(null);
+        } else {
+          setMe((data as { user: AdminMe }).user);
+        }
+      } catch {
+        if (!cancelled) setMe(null);
+      } finally {
+        if (!cancelled) setChecking(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
 
-  async function deleteCookies() {
-    setError(null);
-    const res = await fetch(`${base}/api/admin/youtube/cookies`, {
-      method: "DELETE",
-      headers: { ...authHeader() },
-    });
-    if (!res.ok) {
+  async function login(e: React.FormEvent) {
+    e.preventDefault();
+    setLoginErr(null);
+    setLoginBusy(true);
+    try {
+      const res = await fetch(`${base}/api/admin/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: username.trim(), password }),
+      });
       const data = await res.json().catch(() => ({}));
-      setError((data as { error?: string }).error ?? "Eliminazione fallita");
-      return;
+      if (!res.ok) {
+        setLoginErr((data as { error?: string }).error ?? "Accesso fallito");
+        return;
+      }
+      const d = data as { token: string; user: AdminMe };
+      localStorage.setItem(ADMIN_TOKEN_KEY, d.token);
+      setToken(d.token);
+      setMe(d.user);
+      setPassword("");
+    } finally {
+      setLoginBusy(false);
     }
-    setMessage("File cookies predefinito rimosso (non influisce su YOUTUBE_COOKIES_PATH).");
-    await loadCookiesStatus();
   }
+
+  function logout() {
+    localStorage.removeItem(ADMIN_TOKEN_KEY);
+    setToken(null);
+    setMe(null);
+    setTab("console");
+  }
+
+  if (checking) {
+    return (
+      <div className="kg-page-bg flex min-h-dvh items-center justify-center">
+        <p className="text-sm text-zinc-500">Verifica accesso…</p>
+      </div>
+    );
+  }
+
+  if (!token || !me) {
+    return (
+      <div className="kg-page-bg flex min-h-dvh flex-col items-center justify-center px-4">
+        <div className="w-full max-w-sm">
+          <header className="mb-8 text-center">
+            <p className="font-display text-xs uppercase tracking-[0.35em] text-cyan-400/90">Host</p>
+            <h1 className="font-display mt-3 text-3xl font-semibold tracking-tight text-white">Pannello serata</h1>
+            <p className="mt-3 text-sm text-zinc-400">Accesso riservato a chi conduce.</p>
+          </header>
+
+          <form onSubmit={login} className="kg-card flex flex-col gap-4 p-6 shadow-2xl shadow-black/50">
+            <label className="flex flex-col gap-1.5 text-sm">
+              <span className="text-zinc-400">Nome utente</span>
+              <input
+                className="rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2.5 outline-none ring-cyan-500/30 focus:ring-2"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                autoComplete="username"
+                required
+              />
+            </label>
+            <label className="flex flex-col gap-1.5 text-sm">
+              <span className="text-zinc-400">Password</span>
+              <input
+                type="password"
+                className="rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2.5 outline-none ring-cyan-500/30 focus:ring-2"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                autoComplete="current-password"
+                required
+              />
+            </label>
+
+            {loginErr && <p className="text-sm text-red-400">{loginErr}</p>}
+
+            <button
+              type="submit"
+              disabled={loginBusy || !username.trim() || !password}
+              className="font-display mt-1 rounded-xl bg-gradient-to-r from-cyan-600 to-cyan-500 px-4 py-3 font-semibold text-white transition hover:from-cyan-500 hover:to-cyan-400 disabled:opacity-40"
+            >
+              {loginBusy ? "Accesso…" : "Entra"}
+            </button>
+          </form>
+
+          <p className="mt-6 text-center text-xs text-zinc-600">
+            Primo avvio: <code className="rounded bg-zinc-800 px-1.5 py-0.5 text-zinc-400">admin</code> /{" "}
+            <code className="rounded bg-zinc-800 px-1.5 py-0.5 text-zinc-400">admin</code> — poi cambia la
+            password da Account.
+          </p>
+          <p className="mt-4 text-center text-sm text-zinc-600">
+            <Link to="/join" className="hover:text-zinc-400">
+              ← Area pubblico
+            </Link>
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  const isSuper = me.role === "SUPERADMIN";
 
   return (
     <div className="kg-page-bg min-h-dvh">
       <div className="mx-auto max-w-4xl px-4 py-8 md:px-8">
         <header className="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <p className="font-display text-xs uppercase tracking-[0.3em] text-cyan-400/90">Host</p>
+            <p className="font-display text-xs uppercase tracking-[0.3em] text-cyan-400/90">
+              {isSuper ? "Super admin" : "Host"} · {me.username}
+            </p>
             <h1 className="font-display mt-1 text-2xl font-semibold text-white">La tua serata</h1>
           </div>
-          <nav className="flex gap-1 rounded-xl border border-zinc-800 bg-zinc-950/70 p-1 text-sm" role="tablist">
+          <nav className="flex items-center gap-1 rounded-xl border border-zinc-800 bg-zinc-950/70 p-1 text-sm" role="tablist">
             <button
               type="button"
               role="tab"
@@ -101,77 +189,57 @@ export function Admin() {
             <button
               type="button"
               role="tab"
-              aria-selected={tab === "tech"}
-              onClick={() => setTab("tech")}
+              aria-selected={tab === "account"}
+              onClick={() => setTab("account")}
               className={
-                tab === "tech"
+                tab === "account"
                   ? "rounded-lg bg-zinc-700 px-4 py-2 font-medium text-white"
                   : "rounded-lg px-4 py-2 text-zinc-500 hover:text-white"
               }
             >
-              🔧 Tecnico
+              👤 Account
+            </button>
+            {isSuper && (
+              <button
+                type="button"
+                role="tab"
+                aria-selected={tab === "tech"}
+                onClick={() => setTab("tech")}
+                className={
+                  tab === "tech"
+                    ? "rounded-lg bg-zinc-700 px-4 py-2 font-medium text-white"
+                    : "rounded-lg px-4 py-2 text-zinc-500 hover:text-white"
+                }
+              >
+                🔧 Tecnico
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={logout}
+              title="Esci"
+              className="rounded-lg px-3 py-2 text-zinc-600 hover:text-red-300"
+            >
+              ⎋
             </button>
           </nav>
         </header>
 
         <main className="mt-6">
-          {tab === "console" && <LiveConsole authHeader={authHeader} />}
+          {tab === "console" && <LiveConsole authHeader={authHeader} isSuper={isSuper} />}
 
-          {tab === "tech" && (
+          {tab === "account" && <AccountSection me={me} authHeader={authHeader} />}
+
+          {tab === "tech" && isSuper && (
             <div className="space-y-2">
               <p className="text-sm text-zinc-500">
-                Cose da fare una volta sola, prima della serata: caricare le basi MIDI e, se serve, i cookies
-                per YouTube. Durante la serata resta su <strong className="text-zinc-300">Conduzione</strong>.
+                Cose da fare una volta sola, prima della serata: caricare le basi MIDI nel catalogo condiviso.
+                Durante la serata resta su <strong className="text-zinc-300">Conduzione</strong>.
               </p>
 
               <MidiCatalogSection authHeader={authHeader} />
 
               <MidiDebugSection authHeader={authHeader} />
-
-              <section id="youtube" className="kg-card mt-8 scroll-mt-24 p-6 md:p-8">
-                <h2 className="font-display text-lg font-semibold text-white">YouTube — cookies per yt-dlp</h2>
-                <p className="mt-2 text-sm text-zinc-400">
-                  Servono solo se la ricerca o il download video falliscono per autenticazione. Esporta i cookie
-                  in formato <strong className="text-zinc-300">Netscape</strong>: il file viene salvato come{" "}
-                  <code className="rounded bg-zinc-800 px-1 text-cyan-300">cookies/youtube.txt</code>. Alternativa:{" "}
-                  <code className="rounded bg-zinc-800 px-1">YOUTUBE_COOKIES_PATH</code>.
-                </p>
-
-                {cookiesStatus && (
-                  <pre className="mt-4 max-h-48 overflow-auto rounded-xl border border-zinc-800 bg-zinc-950 p-4 text-left text-xs text-zinc-300">
-                    {JSON.stringify(cookiesStatus, null, 2)}
-                  </pre>
-                )}
-
-                <div className="mt-6 flex flex-wrap items-center gap-3">
-                  <label className="cursor-pointer rounded-xl border border-cyan-500/40 bg-cyan-500/10 px-5 py-2.5 text-sm font-medium text-cyan-100 hover:bg-cyan-500/20">
-                    Carica cookies.txt
-                    <input
-                      type="file"
-                      accept=".txt,text/plain"
-                      className="hidden"
-                      onChange={(e) => void uploadCookies(e.target.files?.[0] ?? null)}
-                    />
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() => void deleteCookies()}
-                    className="rounded-xl border border-zinc-600 px-4 py-2.5 text-sm text-zinc-300 hover:bg-zinc-800"
-                  >
-                    Rimuovi predefinito
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void loadCookiesStatus()}
-                    className="rounded-xl border border-zinc-600 px-4 py-2.5 text-sm text-zinc-300 hover:bg-zinc-800"
-                  >
-                    Aggiorna stato
-                  </button>
-                </div>
-              </section>
-
-              {message && <p className="mt-8 text-sm text-emerald-400">{message}</p>}
-              {error && <p className="mt-8 text-sm text-red-400">{error}</p>}
             </div>
           )}
         </main>

@@ -8,7 +8,7 @@ import { prisma } from "../lib/prisma.js";
 /** @tonejs/midi è CJS: in ESM serve require per evitare crash in Node. */
 const require = createRequire(import.meta.url);
 const { Midi } = require("@tonejs/midi") as { Midi: new (data: ArrayBuffer) => { duration: number } };
-import { requireAdmin } from "../middleware/admin.js";
+import { requireSuperAdmin } from "../middleware/admin.js";
 import { ensureStorageLayout, getStorageRoot } from "../lib/storage.js";
 
 export async function registerSongRoutes(fastify: FastifyInstance): Promise<void> {
@@ -51,7 +51,7 @@ export async function registerSongRoutes(fastify: FastifyInstance): Promise<void
 
   fastify.post(
     "/admin/songs",
-    { preHandler: [requireAdmin] },
+    { preHandler: [requireSuperAdmin] },
     async (request, reply) => {
       const parsed = createSongSchema.safeParse(request.body);
       if (!parsed.success) {
@@ -76,7 +76,7 @@ export async function registerSongRoutes(fastify: FastifyInstance): Promise<void
 
   fastify.post(
     "/admin/songs/upload",
-    { preHandler: [requireAdmin] },
+    { preHandler: [requireSuperAdmin] },
     async (request, reply) => {
       let title = "";
       let artist = "";

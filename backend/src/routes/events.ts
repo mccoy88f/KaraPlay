@@ -1,9 +1,10 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
-import { requireAdmin } from "../middleware/admin.js";
+import { canManageEvent, requireAdmin } from "../middleware/admin.js";
 import { isValidSoundfontBankId } from "../lib/soundfontBanks.js";
 import type { EventStatus } from "@prisma/client";
+import type { JwtPayload } from "../types/jwt.js";
 
 function randomJoinCode(): string {
   return String(Math.floor(100000 + Math.random() * 900000));
@@ -31,7 +32,7 @@ const statusSchema = z.object({
 });
 
 export async function registerEventRoutes(fastify: FastifyInstance): Promise<void> {
-  /** Verifica che il token admin coincida con ADMIN_TOKEN (utile da /admin). */
+  /** Verifica che il login admin sia valido (usato dal pannello). */
   fastify.get("/admin/ping", { preHandler: [requireAdmin] }, async () => ({ ok: true }));
 
   /** Info essenziali per id (il display conosce l'eventId, non il PIN). */
@@ -54,9 +55,11 @@ export async function registerEventRoutes(fastify: FastifyInstance): Promise<voi
     return reply.send(event);
   });
 
-  /** Elenco serate per il pannello admin. */
-  fastify.get("/admin/events", { preHandler: [requireAdmin] }, async (_request, reply) => {
+  /** Elenco serate: l'admin vede solo le sue, il super admin tutte. */
+  fastify.get("/admin/events", { preHandler: [requireAdmin] }, async (request, reply) => {
+    const jwt = request.user as JwtPayload;
     const events = await prisma.event.findMany({
+      where: jwt.role === "superadmin" ? {} : { adminId: jwt.sub },
       orderBy: { date: "desc" },
       take: 50,
       select: {
@@ -123,6 +126,7 @@ export async function registerEventRoutes(fastify: FastifyInstance): Promise<voi
         return reply.code(500).send({ error: "Impossibile generare join code" });
       }
 
+      const jwt = request.user as JwtPayload;
       const event = await prisma.event.create({
         data: {
           name,
@@ -130,6 +134,7 @@ export async function registerEventRoutes(fastify: FastifyInstance): Promise<voi
           date: new Date(date),
           joinCode: code,
           hostId: host.id,
+          adminId: jwt.sub,
           status: "DRAFT",
         },
       });
@@ -141,6 +146,9 @@ export async function registerEventRoutes(fastify: FastifyInstance): Promise<voi
     "/admin/events/:id",
     { preHandler: [requireAdmin] },
     async (request, reply) => {
+      if (!(await canManageEvent(request.user as JwtPayload, request.params.id))) {
+        return reply.code(403).send({ error: "Questa serata è gestita da un altro admin" });
+      }
       const parsed = updateEventSchema.safeParse(request.body);
       if (!parsed.success) {
         return reply.code(400).send({ error: "Dati non validi" });
@@ -163,6 +171,9 @@ export async function registerEventRoutes(fastify: FastifyInstance): Promise<voi
     "/admin/events/:id/status",
     { preHandler: [requireAdmin] },
     async (request, reply) => {
+      if (!(await canManageEvent(request.user as JwtPayload, request.params.id))) {
+        return reply.code(403).send({ error: "Questa serata è gestita da un altro admin" });
+      }
       const parsed = statusSchema.safeParse(request.body);
       if (!parsed.success) {
         return reply.code(400).send({ error: "Stato non valido" });

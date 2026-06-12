@@ -1,8 +1,20 @@
 import { PrismaClient } from "@prisma/client";
+import bcrypt from "bcryptjs";
 
 const prisma = new PrismaClient();
 
 async function main() {
+  // Super admin di partenza: cambia la password al primo accesso da /admin → Account.
+  await prisma.adminUser.upsert({
+    where: { username: "admin" },
+    update: {},
+    create: {
+      username: "admin",
+      passwordHash: bcrypt.hashSync("admin", 10),
+      role: "SUPERADMIN",
+    },
+  });
+
   const host = await prisma.user.upsert({
     where: { email: "host@karaoke.local" },
     update: {},
@@ -45,7 +57,7 @@ async function main() {
     });
   }
 
-  console.log("Seed completato: host, evento demo (PIN 000000), canzone demo MIDI");
+  console.log("Seed completato: super admin (admin/admin), evento demo (PIN 000000), canzone demo MIDI");
 }
 
 main()

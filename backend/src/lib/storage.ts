@@ -10,15 +10,27 @@ export function getCookiesDir(): string {
   return path.join(getStorageRoot(), "cookies");
 }
 
-/** File caricato dall'admin (formato Netscape) */
+/** File legacy condiviso (formato Netscape), usato come ripiego. */
 export function getDefaultYoutubeCookiesPath(): string {
   return path.join(getCookiesDir(), "youtube.txt");
 }
 
+/** Ogni admin/super admin ha il proprio file cookies. */
+export function getAdminCookiesPath(adminId: string): string {
+  return path.join(getCookiesDir(), `admin-${adminId}.txt`);
+}
+
 /**
- * Priorità: YOUTUBE_COOKIES_PATH (env) se il file esiste, altrimenti file admin sotto storage.
+ * Priorità: cookies personali dell'admin della serata → YOUTUBE_COOKIES_PATH (env)
+ * → file condiviso legacy.
  */
-export function resolveYoutubeCookiesPath(): string | null {
+export function resolveYoutubeCookiesPath(adminId?: string | null): string | null {
+  if (adminId) {
+    const own = getAdminCookiesPath(adminId);
+    if (existsSync(own)) {
+      return own;
+    }
+  }
   const fromEnv = process.env.YOUTUBE_COOKIES_PATH?.trim();
   if (fromEnv && existsSync(fromEnv)) {
     return fromEnv;

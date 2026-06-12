@@ -47,10 +47,29 @@ model Event {
   createdAt        DateTime    @default(now())
   /** Banco GM per playback MIDI (fluid_r3 | musyng_kite | fatboy). */
   soundfontBankId  String      @default("fluid_r3")
+  /** Admin (o superadmin) che gestisce la serata. */
+  adminId          String?
 
   host        User          @relation("EventHost", fields: [hostId], references: [id])
+  admin       AdminUser?    @relation(fields: [adminId], references: [id])
   bookings    Booking[]
   performances Performance[]
+}
+
+/** Account del pannello host: il superadmin gestisce anche il server e gli altri admin. */
+model AdminUser {
+  id           String    @id @default(cuid())
+  username     String    @unique
+  passwordHash String
+  role         AdminRole @default(ADMIN)
+  createdAt    DateTime  @default(now())
+
+  events Event[]
+}
+
+enum AdminRole {
+  SUPERADMIN
+  ADMIN
 }
 
 enum EventStatus {

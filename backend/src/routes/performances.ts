@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { prisma } from "../lib/prisma.js";
-import { requireAdmin } from "../middleware/admin.js";
+import { canManageEvent, requireAdmin } from "../middleware/admin.js";
+import type { JwtPayload } from "../types/jwt.js";
 import { getIo } from "../socket/io.js";
 import { emitQueueUpdate } from "../socket/emit.js";
 import { getEventLeaderboard, recordPerformanceScore } from "../services/leaderboard.service.js";
@@ -31,6 +32,9 @@ export async function registerPerformanceRoutes(fastify: FastifyInstance): Promi
       });
       if (!booking) {
         return reply.code(404).send({ error: "Prenotazione non trovata" });
+      }
+      if (!(await canManageEvent(request.user as JwtPayload, booking.eventId))) {
+        return reply.code(403).send({ error: "Questa serata è gestita da un altro admin" });
       }
       if (booking.status !== "APPROVED" && booking.status !== "READY") {
         return reply
@@ -88,6 +92,9 @@ export async function registerPerformanceRoutes(fastify: FastifyInstance): Promi
       });
       if (!perf) {
         return reply.code(404).send({ error: "Esibizione non trovata" });
+      }
+      if (!(await canManageEvent(request.user as JwtPayload, perf.eventId))) {
+        return reply.code(403).send({ error: "Questa serata è gestita da un altro admin" });
       }
       if (perf.endedAt) {
         return reply.code(400).send({ error: "Esibizione già terminata" });

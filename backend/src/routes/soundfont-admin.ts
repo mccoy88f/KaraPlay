@@ -3,7 +3,7 @@ import { readdir, stat, unlink } from "node:fs/promises";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
 import type { FastifyInstance } from "fastify";
-import { requireAdmin } from "../middleware/admin.js";
+import { requireAdmin, requireSuperAdmin } from "../middleware/admin.js";
 import { getSoundfontBankById, isValidSf2FileName } from "../lib/soundfontBanks.js";
 import { getSoundfontBankStatus, syncSoundfontBank } from "../services/soundfont-sync.service.js";
 import { ensureStorageLayout, getSf2Dir } from "../lib/storage.js";
@@ -29,7 +29,7 @@ export async function registerSoundfontAdminRoutes(fastify: FastifyInstance): Pr
 
   fastify.post<{ Params: { bankId: string } }>(
     "/admin/soundfonts/:bankId/sync",
-    { preHandler: [requireAdmin] },
+    { preHandler: [requireSuperAdmin] },
     async (request, reply) => {
       const bankId = request.params.bankId;
       if (!bankIds.includes(bankId as (typeof bankIds)[number])) {
@@ -67,7 +67,7 @@ export async function registerSoundfontAdminRoutes(fastify: FastifyInstance): Pr
   });
 
   /** Upload di un file SoundFont (multipart, field name: file). */
-  fastify.post("/admin/soundfonts/sf2/upload", { preHandler: [requireAdmin] }, async (request, reply) => {
+  fastify.post("/admin/soundfonts/sf2/upload", { preHandler: [requireSuperAdmin] }, async (request, reply) => {
     const file = await request.file({ limits: { fileSize: SF2_MAX_BYTES } });
     if (!file) {
       return reply.code(400).send({ error: "Nessun file (field name: file)" });
@@ -101,7 +101,7 @@ export async function registerSoundfontAdminRoutes(fastify: FastifyInstance): Pr
 
   fastify.delete<{ Params: { file: string } }>(
     "/admin/soundfonts/sf2/:file",
-    { preHandler: [requireAdmin] },
+    { preHandler: [requireSuperAdmin] },
     async (request, reply) => {
       const name = request.params.file;
       if (!isValidSf2FileName(name)) {

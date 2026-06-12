@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { prisma } from "../lib/prisma.js";
-import { requireAdmin } from "../middleware/admin.js";
+import { canManageEvent, requireAdmin } from "../middleware/admin.js";
+import type { JwtPayload } from "../types/jwt.js";
 import { emitQueueUpdate } from "../socket/emit.js";
 
 export async function registerAdminBookingRoutes(fastify: FastifyInstance): Promise<void> {
@@ -11,6 +12,9 @@ export async function registerAdminBookingRoutes(fastify: FastifyInstance): Prom
       const booking = await prisma.booking.findUnique({ where: { id: request.params.id } });
       if (!booking) {
         return reply.code(404).send({ error: "Prenotazione non trovata" });
+      }
+      if (!(await canManageEvent(request.user as JwtPayload, booking.eventId))) {
+        return reply.code(403).send({ error: "Questa serata è gestita da un altro admin" });
       }
       if (booking.status !== "PENDING") {
         return reply.code(400).send({ error: "Solo prenotazioni PENDING possono essere approvate" });
@@ -38,6 +42,9 @@ export async function registerAdminBookingRoutes(fastify: FastifyInstance): Prom
       const booking = await prisma.booking.findUnique({ where: { id: request.params.id } });
       if (!booking) {
         return reply.code(404).send({ error: "Prenotazione non trovata" });
+      }
+      if (!(await canManageEvent(request.user as JwtPayload, booking.eventId))) {
+        return reply.code(403).send({ error: "Questa serata è gestita da un altro admin" });
       }
       if (booking.status !== "PENDING") {
         return reply.code(400).send({ error: "Solo prenotazioni PENDING possono essere rifiutate" });

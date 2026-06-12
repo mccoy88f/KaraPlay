@@ -55,8 +55,12 @@ export async function startYoutubeProcess(bookingId: string): Promise<void> {
 }
 
 async function runJob(bookingId: string) {
-  const booking = await prisma.booking.findUnique({ where: { id: bookingId } });
+  const booking = await prisma.booking.findUnique({
+    where: { id: bookingId },
+    include: { event: { select: { adminId: true } } },
+  });
   if (!booking?.ytUrl) return;
+  const cookiesAdminId = booking.event.adminId;
 
   const eventId = booking.eventId;
   const basePath = path.join(getStorageRoot(), "yt", bookingId);
@@ -64,13 +68,18 @@ async function runJob(bookingId: string) {
   try {
     await ensureStorageLayout();
 
-    const meta = await previewUrl(booking.ytUrl);
+    const meta = await previewUrl(booking.ytUrl, cookiesAdminId);
 
-    const filePath = await downloadVideoMp4(booking.ytUrl, basePath, (p) => {
-      const rounded = Math.min(99, Math.round(p.percent ?? 0));
-      jobMap.set(bookingId, { phase: "downloading", progress: rounded });
-      emitProcessing(eventId, bookingId, rounded);
-    });
+    const filePath = await downloadVideoMp4(
+      booking.ytUrl,
+      basePath,
+      (p) => {
+        const rounded = Math.min(99, Math.round(p.percent ?? 0));
+        jobMap.set(bookingId, { phase: "downloading", progress: rounded });
+        emitProcessing(eventId, bookingId, rounded);
+      },
+      cookiesAdminId
+    );
 
     await access(filePath);
 
