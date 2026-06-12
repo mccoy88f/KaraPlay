@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { STAGE_PLAYER_FRAME_CLASS, STAGE_SHELL_CLASS, StageStartOverlay } from "./StageStartOverlay";
+import { STAGE_SHELL_CLASS, StageStartOverlay } from "./StageStartOverlay";
 
 type Props = {
   ytUrl: string;
@@ -124,10 +124,7 @@ export function YoutubeEmbed({ ytUrl, title, onEnded }: Props) {
   return (
     <div className={STAGE_SHELL_CLASS}>
       {started ? (
-        <div
-          ref={containerRef}
-          className={`${STAGE_PLAYER_FRAME_CLASS} [&>iframe]:h-full [&>iframe]:w-full`}
-        >
+        <div ref={containerRef} className="h-full w-full [&>iframe]:h-full [&>iframe]:w-full">
           <div />
         </div>
       ) : (

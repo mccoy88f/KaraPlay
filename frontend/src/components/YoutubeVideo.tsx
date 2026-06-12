@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { STAGE_PLAYER_FRAME_CLASS, STAGE_SHELL_CLASS, StageStartOverlay } from "./StageStartOverlay";
+import { STAGE_SHELL_CLASS, StageStartOverlay } from "./StageStartOverlay";
 
 const base = import.meta.env.VITE_API_URL ?? "";
 
@@ -34,7 +34,7 @@ export function YoutubeVideo({ bookingId, title, onEnded }: Props) {
     <div className={STAGE_SHELL_CLASS}>
       <video
         ref={videoRef}
-        className={`${STAGE_PLAYER_FRAME_CLASS} object-contain`}
+        className="h-full w-full object-contain"
         src={videoUrl}
         preload="auto"
         controls={started}
