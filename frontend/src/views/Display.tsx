@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { io, type Socket } from "socket.io-client";
 import QRCode from "qrcode";
+import confetti from "canvas-confetti";
 import { KaraokePlayer } from "../components/KaraokePlayer";
 import { YoutubeEmbed } from "../components/YoutubeEmbed";
 import { YoutubeVideo } from "../components/YoutubeVideo";
@@ -58,6 +59,22 @@ type EventInfo = {
 const socketUrl = import.meta.env.VITE_API_URL || (typeof window !== "undefined" ? window.location.origin : "");
 const MEDALS = ["🥇", "🥈", "🥉"];
 const COMMENT_TTL_MS = 9000;
+
+/** Festeggia il punteggio: tre lanci di coriandoli dal basso verso il centro. */
+function fireScoreConfetti() {
+  const fire = (x: number, angle: number) =>
+    confetti({
+      particleCount: 120,
+      spread: 75,
+      startVelocity: 55,
+      angle,
+      origin: { x, y: 0.9 },
+      colors: ["#e879f9", "#22d3ee", "#fbbf24", "#34d399", "#f87171"],
+    });
+  fire(0.2, 60);
+  fire(0.8, 120);
+  window.setTimeout(() => fire(0.5, 90), 350);
+}
 
 export function Display() {
   const [searchParams] = useSearchParams();
@@ -170,7 +187,10 @@ export function Display() {
         setLive(null);
         setVoteAvg(null);
         setVoteCount(0);
-        if (typeof payload?.score === "number") setLastScore(payload.score);
+        if (typeof payload?.score === "number") {
+          setLastScore(payload.score);
+          fireScoreConfetti();
+        }
       });
 
       socket.on("vote:update", (payload: { performanceId: string; avg: number; count: number }) => {
@@ -347,7 +367,7 @@ export function Display() {
               {lastScore !== null ? (
                 <>
                   <p className="font-display text-xl uppercase tracking-[0.3em] text-fuchsia-300/90">Punteggio</p>
-                  <p className="font-display text-8xl font-bold text-white drop-shadow-[0_0_40px_rgba(232,121,249,0.35)]">
+                  <p className="kg-score-pop font-display text-8xl font-bold text-white drop-shadow-[0_0_40px_rgba(232,121,249,0.35)]">
                     {lastScore.toFixed(1)}
                   </p>
                 </>
@@ -409,17 +429,18 @@ export function Display() {
           </div>
         )}
 
+        {/* banda commenti live a tutta larghezza, sopra a tutto */}
         {comments.length > 0 && (
-          <div className="pointer-events-none absolute bottom-4 left-4 flex max-w-md flex-col gap-2 text-left">
-            {comments.map((c) => (
-              <p
-                key={c.id}
-                className="rounded-xl border border-zinc-700/80 bg-zinc-950/85 px-4 py-2 text-sm shadow-lg backdrop-blur"
-              >
-                💬 <span className="font-semibold text-fuchsia-300">{c.nickname}</span>{" "}
-                <span className="text-zinc-200">{c.text}</span>
-              </p>
-            ))}
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 border-t border-zinc-800/80 bg-zinc-950/85 px-4 py-2.5 backdrop-blur-md">
+            <div className="flex items-center gap-6 overflow-hidden whitespace-nowrap">
+              <span className="shrink-0 text-base">💬</span>
+              {comments.map((c) => (
+                <p key={c.id} className="kg-comment-in shrink-0 text-base md:text-lg">
+                  <span className="font-semibold text-fuchsia-300">{c.nickname}</span>{" "}
+                  <span className="text-zinc-100">{c.text}</span>
+                </p>
+              ))}
+            </div>
           </div>
         )}
       </main>
