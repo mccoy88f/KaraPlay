@@ -8,7 +8,7 @@ Web app per serate karaoke gamificate.
 docker compose up -d --build
 ```
 
-Apri `http://localhost:8080` nel browser. Le variabili (JWT_SECRET, SMTP…) sono
+Apri `http://localhost:8083` nel browser. Le variabili (JWT_SECRET, SMTP…) sono
 opzionali per provare: hanno default di sviluppo, personalizzale con un file `.env`
 (vedi `.env.example`).
 
@@ -23,7 +23,7 @@ Lo stack si avvia direttamente dal repository, senza clonare nulla a mano:
 5. **Deploy the stack** — Portainer builda le immagini di frontend e backend da solo
 
 Al primo avvio il backend applica le migrazioni e il seed (serata demo con PIN
-`000000`). L'app è su `http://<host>:8080`.
+`000000`). L'app è su `http://<host>:8083`.
 
 ## Interfacce
 

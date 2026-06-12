@@ -3,14 +3,14 @@
 # Portainer:         Stacks → Add stack → Repository
 #                    URL del repo, branch "main", compose path "docker-compose.yml".
 #                    Portainer clona il repo e builda le immagini da solo.
-# App su  http://<host>:8080  (pubblico /join, host /admin, schermo /display, palco /stage)
+# App su  http://<host>:8083  (pubblico /join, host /admin, schermo /display, palco /stage)
 
 services:
   frontend:
     build: ./frontend
     restart: unless-stopped
     ports:
-      - "8080:80"
+      - "8083:80"
     depends_on:
       - api
 
@@ -18,7 +18,7 @@ services:
     build: ./backend
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "3003:3000"
     environment:
       DATABASE_URL: postgresql://karaoke:password@db:5432/karaokedb
       JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me}
