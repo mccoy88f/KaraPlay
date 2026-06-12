@@ -151,7 +151,12 @@ export function LiveConsole({ authHeader }: Props) {
     setErr(null);
     const res = await fetch(`${base}/api${path}`, {
       ...init,
-      headers: { "Content-Type": "application/json", ...authHeader(), ...(init?.headers ?? {}) },
+      headers: {
+        // Content-Type JSON solo se c'è un body: Fastify risponde 400 a JSON con body vuoto.
+        ...(init?.body ? { "Content-Type": "application/json" } : {}),
+        ...authHeader(),
+        ...(init?.headers ?? {}),
+      },
     });
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
