@@ -11,6 +11,7 @@ const { Midi } = require("@tonejs/midi") as { Midi: new (data: ArrayBuffer) => {
 import { requireAdmin } from "../middleware/admin.js";
 import { ensureStorageLayout, getStorageRoot } from "../lib/storage.js";
 import type { JwtPayload } from "../types/jwt.js";
+import { getIo } from "../socket/io.js";
 
 export async function registerSongRoutes(fastify: FastifyInstance): Promise<void> {
   /** Catalogo visto dal pubblico di una serata: i brani MIDI dell'admin che la gestisce. */
@@ -105,6 +106,17 @@ export async function registerSongRoutes(fastify: FastifyInstance): Promise<void
         where: { id: song.id },
         data: { mutedTrack: parsed.data.track },
       });
+      // se il brano è sul palco in questo momento, il display applica il mute al volo
+      const performing = await prisma.booking.findMany({
+        where: { songId: song.id, status: "PERFORMING" },
+        select: { eventId: true },
+      });
+      for (const b of performing) {
+        getIo()?.to(`event:${b.eventId}`).emit("song:muted-track", {
+          songId: song.id,
+          mutedTrack: parsed.data.track,
+        });
+      }
       return reply.send(updated);
     }
   );

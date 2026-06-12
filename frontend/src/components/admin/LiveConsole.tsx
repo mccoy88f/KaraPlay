@@ -508,6 +508,30 @@ export function LiveConsole({ authHeader, isSuper }: Props) {
                   <p className="mt-1 text-zinc-300">{bookingTitle(performing)}</p>
                 </div>
                 <div className="flex items-center gap-4">
+                  {performing.song?.source === "MIDI" && (
+                    <select
+                      title="Silenzia la traccia della voce guida: ha effetto subito, anche a brano in corso"
+                      value={performing.song.mutedTrack ?? ""}
+                      onChange={(e) =>
+                        void setMutedTrack(
+                          performing.song!.id,
+                          e.target.value === "" ? null : Number(e.target.value)
+                        )
+                      }
+                      className={
+                        performing.song.mutedTrack != null
+                          ? "rounded-lg border border-amber-500/50 bg-amber-950/40 px-2 py-2 text-xs text-amber-200 outline-none"
+                          : "rounded-lg border border-zinc-700 bg-zinc-950 px-2 py-2 text-xs text-zinc-400 outline-none"
+                      }
+                    >
+                      <option value="">🎤 voce on</option>
+                      {Array.from({ length: 16 }, (_, i) => i + 1).map((n) => (
+                        <option key={n} value={n}>
+                          🔇 muta tr. {n}
+                        </option>
+                      ))}
+                    </select>
+                  )}
                   <p className="rounded-full border border-amber-500/40 bg-amber-500/10 px-4 py-2 text-amber-200">
                     ★ <span className="font-display text-xl font-semibold">{voteAvg != null ? voteAvg.toFixed(1) : "—"}</span>
                     <span className="ml-2 text-xs text-amber-200/70">{voteCount} voti</span>

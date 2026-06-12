@@ -311,6 +311,15 @@ export function Display() {
         setLeaderboard(payload.entries ?? []);
       });
 
+      // la console può cambiare la traccia silenziata anche a brano in corso
+      socket.on("song:muted-track", (payload: { songId: string; mutedTrack: number | null }) => {
+        setLive((prev) =>
+          prev?.song?.id === payload.songId
+            ? { ...prev, song: { ...prev.song, mutedTrack: payload.mutedTrack } }
+            : prev
+        );
+      });
+
       socket.on("youtube:processing", (payload: { progress: number }) => {
         setYtHint(`Download video in corso… ${payload.progress}%`);
       });
@@ -593,9 +602,14 @@ export function Display() {
           </div>
         )}
 
-        {/* banda commenti live a tutta larghezza, sopra a tutto */}
+        {/* banda commenti live a tutta larghezza; durante i video sta più in alto
+            per non coprire barra di avanzamento e "salta annuncio" */}
         {comments.length > 0 && (
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 border-t border-zinc-800/80 bg-zinc-950/85 px-4 py-2.5 backdrop-blur-md">
+          <div
+            className={`pointer-events-none absolute inset-x-0 border-t border-zinc-800/80 bg-zinc-950/85 px-4 py-2.5 backdrop-blur-md ${
+              live && live.song?.source !== "MIDI" ? "bottom-24" : "bottom-0"
+            }`}
+          >
             <div className="flex items-center gap-6 overflow-hidden whitespace-nowrap">
               <span className="shrink-0 text-base">💬</span>
               {comments.map((c) => (
