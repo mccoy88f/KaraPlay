@@ -11,6 +11,7 @@ import {
 import { previewUrl, searchYoutube } from "../services/ytdlp.service.js";
 import { requireJwt } from "../middleware/jwt.js";
 import { fetchLrcFromLrclib } from "../services/lrclib.service.js";
+import { startYoutubeProcess } from "../services/youtube-process.service.js";
 
 const previewSchema = z.object({
   url: z.string().url(),
@@ -137,4 +138,18 @@ export async function registerYoutubeRoutes(fastify: FastifyInstance): Promise<v
     }
   );
 
+  /** Pre-download del video (opzionale): evita la pubblicità dell'embed sul display. */
+  fastify.post<{ Params: { bookingId: string } }>(
+    "/admin/youtube/process/:bookingId",
+    { preHandler: [requireAdmin] },
+    async (request, reply) => {
+      try {
+        await startYoutubeProcess(request.params.bookingId);
+        return reply.code(202).send({ ok: true, message: "Download video avviato" });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        return reply.code(400).send({ error: msg });
+      }
+    }
+  );
 }

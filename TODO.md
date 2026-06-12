@@ -73,10 +73,12 @@ le voci `[ ]` restano da fare per arrivare a un progetto completo e funzionante 
   il pubblico cerca un brano e lo prenota; la prenotazione entra in coda come `PENDING`.
 - [x] **Flusso di approvazione YouTube nel pannello admin**: pulsanti **Approva / Rifiuta**
   per le prenotazioni `PENDING`; una volta approvate si avviano direttamente.
-- [x] **Riproduzione YouTube sul display via embed**: il video viene riprodotto direttamente
-  nell'iframe YouTube (l'audio è già nel video) — niente più download audio con yt-dlp né
-  ricerca testi su LRCLIB. yt-dlp resta solo per ricerca e preview. Rimossi
-  youtube-process.service, le rotte di process/status e `/api/media/yt/:bookingId`.
+- [x] **Riproduzione YouTube ibrida sul display**: di base il video parte subito
+  nell'iframe embed (può mostrare la pubblicità di YouTube); in alternativa l'admin può
+  pre-scaricare il **video mp4** con yt-dlp (pulsante "No ads ⬇" in coda) — in quel caso
+  il display riproduce il file dal server (`/api/media/yt/:bookingId`, con supporto Range
+  per il seeking) **senza pubblicità**. Non si scarica più solo l'audio né si cercano
+  testi su LRCLIB: il video karaoke contiene già tutto.
 - [ ] Ricerca nel catalogo MIDI lato server per cataloghi grandi (oggi il filtro è client-side;
   l'endpoint `GET /api/songs?q=` esiste già).
 - [ ] Metadati migliori per i risultati YouTube (durata talvolta assente con `--flat-playlist`).

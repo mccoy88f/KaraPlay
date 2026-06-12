@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import path from "node:path";
 import { resolveYoutubeCookiesPath } from "../lib/storage.js";
 
 export type VideoMeta = {
@@ -127,4 +128,61 @@ export async function searchYoutube(query: string, limit = 8): Promise<YoutubeSe
     });
   }
   return results;
+}
+
+export type DownloadProgress = { percent: number | null; line: string };
+
+/**
+ * Scarica il video completo in mp4 (max 1080p) sotto outputPath, senza estensione:
+ * il file finale è `${outputBasePathWithoutExt}.mp4`. Riprodotto dal server al posto
+ * dell'embed YouTube per evitare la pubblicità. Richiede ffmpeg per il merge.
+ */
+export async function downloadVideoMp4(
+  url: string,
+  outputBasePathWithoutExt: string,
+  onProgress?: (p: DownloadProgress) => void
+): Promise<string> {
+  const args = [
+    "-f",
+    "bv*[ext=mp4][height<=1080]+ba[ext=m4a]/b[ext=mp4]/bv*+ba/b",
+    "--merge-output-format",
+    "mp4",
+    "--no-playlist",
+    "--no-warnings",
+    "--newline",
+    "--progress",
+    "-o",
+    `${outputBasePathWithoutExt}.%(ext)s`,
+    ...cookiesArgs(),
+    url,
+  ];
+
+  return new Promise((resolve, reject) => {
+    const proc = spawn("yt-dlp", args, { stdio: ["ignore", "pipe", "pipe"] });
+    let stderr = "";
+    const onChunk = (d: Buffer) => {
+      const text = d.toString();
+      for (const line of text.split(/\r?\n/)) {
+        if (!line.trim()) continue;
+        const m = /(\d+\.?\d*)%/.exec(line);
+        onProgress?.({
+          percent: m ? Number.parseFloat(m[1]) : null,
+          line,
+        });
+      }
+    };
+    proc.stdout.on("data", onChunk);
+    proc.stderr.on("data", (d: Buffer) => {
+      stderr += d.toString();
+      onChunk(d);
+    });
+    proc.on("error", reject);
+    proc.on("close", (code) => {
+      if (code !== 0) {
+        reject(new Error(stderr.trim() || `yt-dlp download fallito (${code})`));
+        return;
+      }
+      resolve(path.normalize(`${outputBasePathWithoutExt}.mp4`));
+    });
+  });
 }

@@ -4,6 +4,7 @@ import { io, type Socket } from "socket.io-client";
 import QRCode from "qrcode";
 import { KaraokePlayer } from "../components/KaraokePlayer";
 import { YoutubeEmbed } from "../components/YoutubeEmbed";
+import { YoutubeVideo } from "../components/YoutubeVideo";
 import {
   apiGetEventById,
   apiGetEventLeaderboard,
@@ -73,6 +74,7 @@ export function Display() {
   const [voteCount, setVoteCount] = useState(0);
   const [comments, setComments] = useState<OverlayComment[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [ytHint, setYtHint] = useState<string | null>(null);
 
   const socketRef = useRef<Socket | null>(null);
   const liveRef = useRef<PerfPayload | null>(null);
@@ -217,6 +219,18 @@ export function Display() {
       socket.on("leaderboard:update", (payload: { entries: LeaderboardEntry[] }) => {
         setLeaderboard(payload.entries ?? []);
       });
+
+      socket.on("youtube:processing", (payload: { progress: number }) => {
+        setYtHint(`Download video in corso… ${payload.progress}%`);
+      });
+      socket.on("youtube:ready", () => {
+        setYtHint("Video pronto: si avvia senza pubblicità");
+        window.setTimeout(() => setYtHint(null), 5000);
+      });
+      socket.on("youtube:error", (payload: { error?: string }) => {
+        setYtHint(`Download video fallito (si userà l'embed) — ${payload?.error ?? "errore"}`);
+        window.setTimeout(() => setYtHint(null), 8000);
+      });
     }
 
     bootstrap().catch(() => setError("Connessione fallita"));
@@ -280,6 +294,11 @@ export function Display() {
 
       <main className="relative flex flex-1 flex-col px-4 py-8 text-center md:px-10">
         {error && <p className="text-sm text-red-400">{error}</p>}
+        {ytHint && (
+          <p className="text-sm text-amber-200/90" role="status">
+            {ytHint}
+          </p>
+        )}
 
         {live ? (
           <div className="flex flex-1 flex-col items-center gap-6 md:gap-10">
@@ -304,6 +323,15 @@ export function Display() {
                 artist={live.song.artist}
                 lrcPath={live.song.lrcPath}
                 soundfontBankId={sfBank}
+                onTick={handleTick}
+              />
+            ) : live.song?.source === "YOUTUBE" && live.booking?.id ? (
+              // Video pre-scaricato sul server (la Song esiste solo a download completato): no pubblicità.
+              <YoutubeVideo
+                key={live.performance.id}
+                bookingId={live.booking.id}
+                title={live.song.title}
+                nickname={live.user.nickname}
                 onTick={handleTick}
               />
             ) : live.booking?.ytUrl ? (

@@ -243,6 +243,22 @@ export function LiveQueueSection({ authHeader }: Props) {
     await loadQueue();
   }
 
+  /** Pre-download opzionale del video: evita la pubblicità dell'embed sul display. */
+  async function processYoutube(bookingId: string) {
+    setErr(null);
+    const res = await fetch(`${base}/api/admin/youtube/process/${encodeURIComponent(bookingId)}`, {
+      method: "POST",
+      headers: { ...authHeader() },
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setErr((data as { error?: string }).error ?? "Avvio download fallito");
+      return;
+    }
+    setMsg("Download video avviato: ricarica la coda tra qualche istante (stato READY = senza pubblicità).");
+    await loadQueue();
+  }
+
   async function startBooking(bookingId: string) {
     setErr(null);
     const res = await fetch(`${base}/api/admin/performances/start/${encodeURIComponent(bookingId)}`, {
@@ -531,6 +547,19 @@ export function LiveQueueSection({ authHeader }: Props) {
                           Rifiuta
                         </button>
                       </>
+                    )}
+                    {b.status === "APPROVED" && b.ytUrl && !b.song && (
+                      <button
+                        type="button"
+                        title="Scarica il video sul server: sul display partirà senza pubblicità. Senza download si usa l'embed YouTube."
+                        onClick={() => void processYoutube(b.id)}
+                        className="rounded border border-emerald-500/50 bg-emerald-950/40 px-2 py-1 text-xs text-emerald-200 hover:bg-emerald-900/50"
+                      >
+                        No ads ⬇
+                      </button>
+                    )}
+                    {b.status === "PROCESSING" && (
+                      <span className="text-xs text-amber-300/90">download…</span>
                     )}
                     {(b.status === "APPROVED" || b.status === "READY") && (
                       <button

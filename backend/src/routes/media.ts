@@ -93,4 +93,46 @@ export async function registerMediaRoutes(fastify: FastifyInstance): Promise<voi
     return reply.send(createReadStream(abs));
   });
 
+  /** Video YouTube pre-scaricato (mp4), con supporto Range per il seeking del tag <video>. */
+  fastify.get<{ Params: { bookingId: string } }>("/media/yt/:bookingId", async (request, reply) => {
+    const booking = await prisma.booking.findUnique({
+      where: { id: request.params.bookingId },
+      include: { song: { select: { mp3Path: true } } },
+    });
+    const rel = booking?.song?.mp3Path;
+    if (!booking || !rel) {
+      return reply.code(404).send({ error: "Video non disponibile (non ancora scaricato)" });
+    }
+    const abs = path.join(getStorageRoot(), rel);
+    let size: number;
+    try {
+      size = (await stat(abs)).size;
+    } catch {
+      return reply.code(404).send({ error: "File non trovato sul disco" });
+    }
+
+    reply.header("Accept-Ranges", "bytes");
+    reply.header("Cache-Control", "public, max-age=3600");
+    reply.type("video/mp4");
+
+    const range = request.headers.range;
+    if (range) {
+      const m = /^bytes=(\d*)-(\d*)$/.exec(range);
+      if (!m || (m[1] === "" && m[2] === "")) {
+        return reply.code(416).header("Content-Range", `bytes */${size}`).send();
+      }
+      const start = m[1] ? Number.parseInt(m[1], 10) : Math.max(0, size - Number.parseInt(m[2], 10));
+      const end = m[1] && m[2] ? Math.min(Number.parseInt(m[2], 10), size - 1) : size - 1;
+      if (Number.isNaN(start) || Number.isNaN(end) || start > end || start >= size) {
+        return reply.code(416).header("Content-Range", `bytes */${size}`).send();
+      }
+      reply.code(206);
+      reply.header("Content-Range", `bytes ${start}-${end}/${size}`);
+      reply.header("Content-Length", String(end - start + 1));
+      return reply.send(createReadStream(abs, { start, end }));
+    }
+
+    reply.header("Content-Length", String(size));
+    return reply.send(createReadStream(abs));
+  });
 }
