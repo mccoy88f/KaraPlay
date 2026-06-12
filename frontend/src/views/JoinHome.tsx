@@ -26,7 +26,7 @@ export function JoinHome() {
       <div className="mx-auto flex min-h-dvh max-w-lg flex-col gap-6 px-4 py-8 md:max-w-xl">
         <header className="text-center">
           <p className="font-display text-xs uppercase tracking-[0.35em] text-fuchsia-400/90">Area pubblico</p>
-          <h1 className="font-display mt-3 text-3xl font-semibold tracking-tight text-white md:text-4xl">KaraokeGame</h1>
+          <h1 className="font-display mt-3 text-3xl font-semibold tracking-tight text-white md:text-4xl">KaraPlay</h1>
           {token && event ? (
             <p className="mt-2 text-sm text-zinc-400">
               {event.name}

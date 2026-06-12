@@ -113,16 +113,22 @@ export type SongDto = {
   duration: number | null;
 };
 
-export async function apiSearchSongs(eventId: string, q?: string): Promise<{ songs: SongDto[] }> {
-  const url = q?.trim()
-    ? `${base}/api/events/${encodeURIComponent(eventId)}/songs?q=${encodeURIComponent(q.trim())}`
-    : `${base}/api/events/${encodeURIComponent(eventId)}/songs`;
-  const res = await fetch(url);
+export async function apiSearchSongs(
+  eventId: string,
+  q?: string,
+  limit = 40,
+  offset = 0
+): Promise<{ songs: SongDto[]; hasMore: boolean }> {
+  const params = new URLSearchParams();
+  if (q?.trim()) params.set("q", q.trim());
+  params.set("limit", String(limit));
+  params.set("offset", String(offset));
+  const res = await fetch(`${base}/api/events/${encodeURIComponent(eventId)}/songs?${params}`);
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     throw new Error((data as { error?: string }).error ?? "Catalogo non disponibile");
   }
-  return data as { songs: SongDto[] };
+  return data as { songs: SongDto[]; hasMore: boolean };
 }
 
 export async function apiBookMidi(eventId: string, songId: string): Promise<void> {
@@ -308,17 +314,26 @@ export type YoutubeSearchResult = {
   thumbnail: string | null;
 };
 
-export async function apiSearchYoutube(q: string): Promise<{ results: YoutubeSearchResult[] }> {
+export async function apiSearchYoutube(
+  q: string,
+  limit = 10,
+  offset = 0
+): Promise<{ results: YoutubeSearchResult[]; hasMore: boolean }> {
   const token = getStoredToken();
   if (!token) throw new Error("Sessione scaduta: entra di nuovo");
-  const res = await fetch(`${base}/api/youtube/search?q=${encodeURIComponent(q.trim())}`, {
+  const params = new URLSearchParams({
+    q: q.trim(),
+    limit: String(limit),
+    offset: String(offset),
+  });
+  const res = await fetch(`${base}/api/youtube/search?${params}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     throw new Error((data as { error?: string }).error ?? "Ricerca YouTube non disponibile");
   }
-  return data as { results: YoutubeSearchResult[] };
+  return data as { results: YoutubeSearchResult[]; hasMore: boolean };
 }
 
 export async function apiBookYoutube(eventId: string, ytUrl: string, ytTitle?: string): Promise<void> {

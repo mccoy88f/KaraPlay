@@ -30,6 +30,7 @@ export function MidiCatalogSection({ authHeader }: Props) {
   const [year, setYear] = useState("");
   const [genre, setGenre] = useState("");
   const [lookupBusy, setLookupBusy] = useState(false);
+  const lookupSeqRef = useRef(0);
   /** Brano in modifica (pannello sotto la tabella). */
   const [editing, setEditing] = useState<SongDto | null>(null);
   const [edit, setEdit] = useState({ title: "", artist: "", year: "", genre: "", language: "" });
@@ -91,34 +92,83 @@ export function MidiCatalogSection({ authHeader }: Props) {
     });
   }, [loadSongs]);
 
-  /** Genere/anno da iTunes (via backend): precompila senza toccare ciò che l'utente ha scritto. */
-  async function lookupOnline() {
-    if (!title.trim()) return;
-    setLookupBusy(true);
-    setErr(null);
-    try {
-      const qs = `title=${encodeURIComponent(title.trim())}&artist=${encodeURIComponent(artist.trim())}`;
-      const res = await fetch(`${base}/api/admin/songs-meta-lookup?${qs}`, { headers: { ...authHeader() } });
-      const data = (await res.json().catch(() => ({}))) as {
-        genre?: string | null;
-        year?: number | null;
-        error?: string;
-      };
-      if (!res.ok) {
-        setErr(data.error ?? "Lookup non disponibile");
-        return;
+  /** Genere/anno da iTunes (via backend): precompila i campi ancora vuoti. */
+  const fetchMetaLookup = useCallback(
+    async (
+      lookupTitle: string,
+      lookupArtist: string,
+      onResult: (data: { genre?: string | null; year?: number | null }) => void,
+      opts: { fillGenre: boolean; fillYear: boolean }
+    ) => {
+      if (!lookupTitle.trim() || (!opts.fillGenre && !opts.fillYear)) return;
+      const seq = ++lookupSeqRef.current;
+      setLookupBusy(true);
+      setErr(null);
+      try {
+        const qs = `title=${encodeURIComponent(lookupTitle.trim())}&artist=${encodeURIComponent(lookupArtist.trim())}`;
+        const res = await fetch(`${base}/api/admin/songs-meta-lookup?${qs}`, { headers: { ...authHeader() } });
+        const data = (await res.json().catch(() => ({}))) as {
+          genre?: string | null;
+          year?: number | null;
+          error?: string;
+        };
+        if (seq !== lookupSeqRef.current) return;
+        if (!res.ok) {
+          setErr(data.error ?? "Lookup non disponibile");
+          return;
+        }
+        onResult(data);
+        if (data.genre || data.year) {
+          setMsg(`Trovato online: ${[data.genre, data.year].filter(Boolean).join(" · ")}`);
+        }
+      } finally {
+        if (seq === lookupSeqRef.current) setLookupBusy(false);
       }
-      if (data.genre && !genre.trim()) setGenre(data.genre);
-      if (data.year && !year.trim()) setYear(String(data.year));
-      setMsg(
-        data.genre || data.year
-          ? `Trovato online: ${[data.genre, data.year].filter(Boolean).join(" · ")}`
-          : "Nessun risultato online per questo brano."
+    },
+    [authHeader]
+  );
+
+  /** Lookup automatico nel form di caricamento: genere se vuoto, anno solo se mancante. */
+  useEffect(() => {
+    const fillGenre = !genre.trim();
+    const fillYear = !year.trim();
+    if (!title.trim() || (!fillGenre && !fillYear)) return;
+    const timer = window.setTimeout(() => {
+      void fetchMetaLookup(
+        title,
+        artist,
+        (data) => {
+          if (data.genre && fillGenre) setGenre(data.genre);
+          if (data.year && fillYear) setYear(String(data.year));
+        },
+        { fillGenre, fillYear }
       );
-    } finally {
-      setLookupBusy(false);
-    }
-  }
+    }, 700);
+    return () => window.clearTimeout(timer);
+  }, [title, artist, genre, year, fetchMetaLookup]);
+
+  /** Lookup automatico nel pannello modifica. */
+  useEffect(() => {
+    if (!editing) return;
+    const fillGenre = !edit.genre.trim();
+    const fillYear = !edit.year.trim();
+    if (!edit.title.trim() || (!fillGenre && !fillYear)) return;
+    const timer = window.setTimeout(() => {
+      void fetchMetaLookup(
+        edit.title,
+        edit.artist,
+        (data) => {
+          setEdit((cur) => ({
+            ...cur,
+            genre: data.genre && fillGenre ? data.genre : cur.genre,
+            year: data.year && fillYear ? String(data.year) : cur.year,
+          }));
+        },
+        { fillGenre, fillYear }
+      );
+    }, 700);
+    return () => window.clearTimeout(timer);
+  }, [editing, edit.title, edit.artist, edit.genre, edit.year, fetchMetaLookup]);
 
   function startEdit(s2: SongDto) {
     setEditing(s2);
@@ -264,16 +314,13 @@ export function MidiCatalogSection({ authHeader }: Props) {
               placeholder="es. Pop, Rock…"
             />
           </label>
-          <button
-            type="button"
-            disabled={lookupBusy || !title.trim()}
-            onClick={() => void lookupOnline()}
-            title="Cerca genere e anno online (iTunes) in base a titolo e artista"
-            className="rounded-lg border border-cyan-500/40 bg-cyan-500/10 px-4 py-2.5 text-sm text-cyan-100 hover:bg-cyan-500/20 disabled:opacity-40"
-          >
-            {lookupBusy ? "Cerco…" : "✨ Genere/anno online"}
-          </button>
+          {lookupBusy && (
+            <p className="pb-2.5 text-xs text-cyan-300/80">Cerco genere/anno online…</p>
+          )}
         </div>
+        <p className="text-xs text-zinc-500">
+          Genere e anno si cercano automaticamente da titolo e artista (iTunes) se i campi sono vuoti.
+        </p>
         <div className="flex flex-wrap gap-4">
           <label className="cursor-pointer rounded-lg border border-cyan-500/40 bg-cyan-500/10 px-4 py-2 text-sm font-medium text-cyan-100 hover:bg-cyan-500/20">
             File MIDI (.mid)

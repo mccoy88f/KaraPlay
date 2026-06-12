@@ -37,8 +37,12 @@ function fetchSf2(file: string): Promise<ArrayBuffer> {
  * Trasposizione live in SF2 via RPN Coarse Tuning (MIDI standard: CC101=0, CC100=2, CC6=64±n).
  * Vale per le note successive su tutti i canali melodici; il canale batteria (10) non si traspone.
  */
+function sf2ControllerChange(synth: WorkletSynthesizer) {
+  return synth.controllerChange.bind(synth) as (ch: number, controller: number, value: number) => void;
+}
+
 function applySf2Transpose(synth: WorkletSynthesizer, semitones: number) {
-  const cc = synth.controllerChange.bind(synth) as (ch: number, controller: number, value: number) => void;
+  const cc = sf2ControllerChange(synth);
   const v = Math.max(0, Math.min(127, 64 + Math.round(semitones)));
   for (let ch = 0; ch < 16; ch++) {
     if (ch === 9) continue;
@@ -51,6 +55,20 @@ function applySf2Transpose(synth: WorkletSynthesizer, semitones: number) {
     } catch {
       /* canale non disponibile */
     }
+  }
+}
+
+/** Mute live SF2: isMuted blocca le note nuove; CC7 + CC123 silenziano subito quelle in corso. */
+function applySf2ChannelMute(synth: WorkletSynthesizer, ch: number, muted: boolean) {
+  const cc = sf2ControllerChange(synth);
+  const channel = synth.midiChannels[ch];
+  try {
+    channel?.setSystemParameter("isMuted", muted);
+    channel?.lockController(7, muted);
+    cc(ch, 7, muted ? 0 : 127);
+    if (muted) cc(ch, 123, 0);
+  } catch {
+    /* canale non disponibile */
   }
 }
 
@@ -129,6 +147,8 @@ export function KaraokePlayer({
   const sf2LiveRef = useRef<{ synth: WorkletSynthesizer; channelOfTrack: number[] } | null>(null);
   /** Per il mute live in Gleitz: un GainNode per traccia (azzeramento immediato sul synth). */
   const gleitzLiveRef = useRef<{ ctx: AudioContext; gainOfTrack: Map<number, GainNode> } | null>(null);
+  /** Riprogramma le note Gleitz dal punto corrente (trasposizione/mute immediati). */
+  const gleitzPumpRef = useRef<{ rescheduleFromNow: () => void } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -189,11 +209,7 @@ export function KaraokePlayer({
         if (track == null) return;
         const ch = sf2.channelOfTrack[track - 1];
         if (ch == null) return;
-        try {
-          sf2.synth.midiChannels[ch]?.setSystemParameter("isMuted", muted);
-        } catch {
-          /* canale non disponibile */
-        }
+        applySf2ChannelMute(sf2.synth, ch, muted);
       };
       setMute(prev, false);
       setMute(next, true);
@@ -207,13 +223,15 @@ export function KaraokePlayer({
         gain.gain.setTargetAtTime(trackIndex === next ? 0 : 1, t, 0.01);
       }
     }
+    gleitzPumpRef.current?.rescheduleFromNow();
   }, [mutedTrack]);
 
-  // Trasposizione live: con SF2 agisce subito sul synth; con Gleitz sulle note ancora da programmare.
+  // Trasposizione live: SF2 via RPN; Gleitz riprogramma dal punto corrente (evita il ritardo LOOKAHEAD 8s).
   useEffect(() => {
     transposeRef.current = transposeSemitones;
     const live = sf2LiveRef.current;
     if (live) applySf2Transpose(live.synth, transposeSemitones);
+    gleitzPumpRef.current?.rescheduleFromNow();
   }, [transposeSemitones]);
 
   const bumpControlsVisibility = useCallback(() => {
@@ -263,13 +281,7 @@ export function KaraokePlayer({
       sf2LiveRef.current = { synth, channelOfTrack: midi.tracks.map((t) => t.channel) };
       if (mutedRef.current != null) {
         const ch = midi.tracks[mutedRef.current - 1]?.channel;
-        if (ch != null) {
-          try {
-            synth.midiChannels[ch]?.setSystemParameter("isMuted", true);
-          } catch {
-            /* canale non disponibile */
-          }
-        }
+        if (ch != null) applySf2ChannelMute(synth, ch, true);
       }
 
       timeSourceRef.current = () => Math.max(0, seq.currentHighResolutionTime);
@@ -404,6 +416,16 @@ export function KaraokePlayer({
       let cursor = 0;
       timeSourceRef.current = () => Math.max(0, ac.currentTime - songZero);
 
+      const stopAllNotes = () => {
+        for (const p of players.values()) {
+          try {
+            p.stop?.();
+          } catch {
+            /* ignore */
+          }
+        }
+      };
+
       const pump = () => {
         if (ac.state !== "running") return;
         const horizon = ac.currentTime - songZero + LOOKAHEAD;
@@ -421,18 +443,19 @@ export function KaraokePlayer({
           }
         }
       };
+
+      const rescheduleFromNow = () => {
+        if (ac.state !== "running") return;
+        stopAllNotes();
+        const now = Math.max(0, ac.currentTime - songZero);
+        cursor = 0;
+        while (cursor < events.length && events[cursor].time < now) cursor++;
+        pump();
+      };
+
+      gleitzPumpRef.current = { rescheduleFromNow };
       pump();
       const pumpTimer = window.setInterval(pump, 1500);
-
-      const stopAllNotes = () => {
-        for (const p of players.values()) {
-          try {
-            p.stop?.();
-          } catch {
-            /* ignore */
-          }
-        }
-      };
 
       // fine brano: watcher sul tempo (un timeout fisso sbaglierebbe dopo una pausa)
       const endAt = Math.max(0.5, midi.duration);
@@ -473,6 +496,7 @@ export function KaraokePlayer({
         window.clearInterval(endWatch);
         controlsRef.current = null;
         gleitzLiveRef.current = null;
+        gleitzPumpRef.current = null;
         stopAllNotes();
         players.clear();
         cleanupAc();
@@ -513,6 +537,12 @@ export function KaraokePlayer({
       setPaused(true);
     }
     bumpControlsVisibility();
+  }
+
+  function handleFrameClick(e: React.MouseEvent) {
+    if (!playing) return;
+    if ((e.target as HTMLElement).closest("[data-stage-controls]")) return;
+    togglePause();
   }
 
   function restart() {
@@ -582,10 +612,11 @@ export function KaraokePlayer({
       className={STAGE_SHELL_CLASS}
       onMouseMove={playing ? bumpControlsVisibility : undefined}
       onTouchStart={playing ? bumpControlsVisibility : undefined}
+      onClick={playing ? handleFrameClick : undefined}
     >
       {playing ? (
         <>
-          <div className="flex h-full flex-col items-center justify-center gap-5 px-8 py-12 pb-24 text-center md:gap-8">
+          <div className="flex h-full cursor-pointer flex-col items-center justify-center gap-5 px-8 py-12 pb-24 text-center md:gap-8">
             {effectiveLines.length > 0 ? (
               rowLineIdx.map((lineIdx, row) => (
                 <p

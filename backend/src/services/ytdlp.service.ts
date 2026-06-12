@@ -86,20 +86,28 @@ export type YoutubeSearchResult = {
  * Ricerca su YouTube (yt-dlp ytsearch). --flat-playlist evita di risolvere ogni video: veloce,
  * ma la durata può mancare per alcuni risultati.
  */
-export async function searchYoutube(query: string, limit = 8, cookiesAdminId?: string | null): Promise<YoutubeSearchResult[]> {
-  const n = Math.min(Math.max(Math.trunc(limit), 1), 15);
+export async function searchYoutube(
+  query: string,
+  limit = 8,
+  offset = 0,
+  cookiesAdminId?: string | null
+): Promise<{ results: YoutubeSearchResult[]; hasMore: boolean }> {
+  const lim = Math.min(Math.max(Math.trunc(limit), 1), 15);
+  const off = Math.max(Math.trunc(offset), 0);
+  const maxFetch = 50;
+  const fetchCount = Math.min(off + lim, maxFetch);
   const args = [
     "--dump-json",
     "--flat-playlist",
     "--no-warnings",
     ...cookiesArgs(cookiesAdminId),
-    `ytsearch${n}:${query}`,
+    `ytsearch${fetchCount}:${query}`,
   ];
   const { stdout, stderr, code } = await runYtDlp(args);
   if (code !== 0) {
     throw new Error(stderr.trim() || `yt-dlp search fallita (codice ${code})`);
   }
-  const results: YoutubeSearchResult[] = [];
+  const all: YoutubeSearchResult[] = [];
   for (const line of stdout.split("\n")) {
     const trimmed = line.trim();
     if (!trimmed) continue;
@@ -118,7 +126,7 @@ export async function searchYoutube(query: string, limit = 8, cookiesAdminId?: s
       continue;
     }
     if (!j.id) continue;
-    results.push({
+    all.push({
       id: j.id,
       url: j.url ?? `https://www.youtube.com/watch?v=${j.id}`,
       title: j.title ?? "Senza titolo",
@@ -127,7 +135,9 @@ export async function searchYoutube(query: string, limit = 8, cookiesAdminId?: s
       thumbnail: j.thumbnails?.[0]?.url ?? `https://i.ytimg.com/vi/${j.id}/mqdefault.jpg`,
     });
   }
-  return results;
+  const page = all.slice(off, off + lim);
+  const hasMore = all.length >= off + lim && off + lim < maxFetch && all.length === fetchCount;
+  return { results: page, hasMore };
 }
 
 export type DownloadProgress = { percent: number | null; line: string };

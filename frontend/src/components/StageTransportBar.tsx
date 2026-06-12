@@ -24,6 +24,8 @@ export function StageTransportBar({
 
   return (
     <div
+      data-stage-controls
+      onClick={(e) => e.stopPropagation()}
       className={`absolute inset-x-0 bottom-0 z-20 bg-gradient-to-t from-black/95 via-black/70 to-transparent px-4 pb-4 pt-12 transition-opacity duration-300 ${
         visible ? "opacity-100" : "pointer-events-none opacity-0"
       }`}

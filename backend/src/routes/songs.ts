@@ -15,7 +15,7 @@ import { getIo } from "../socket/io.js";
 
 export async function registerSongRoutes(fastify: FastifyInstance): Promise<void> {
   /** Catalogo visto dal pubblico di una serata: i brani MIDI dell'admin che la gestisce. */
-  fastify.get<{ Params: { eventId: string }; Querystring: { q?: string } }>(
+  fastify.get<{ Params: { eventId: string }; Querystring: { q?: string; limit?: string; offset?: string } }>(
     "/events/:eventId/songs",
     async (request, reply) => {
       const event = await prisma.event.findUnique({
@@ -26,28 +26,33 @@ export async function registerSongRoutes(fastify: FastifyInstance): Promise<void
         return reply.code(404).send({ error: "Serata non trovata" });
       }
       const q = request.query.q?.trim();
-      const songs = await prisma.song.findMany({
-        where: {
-          source: "MIDI",
-          // i brani senza proprietario (legacy) restano visibili a tutte le serate
-          OR: event.adminId ? [{ adminId: event.adminId }, { adminId: null }] : [{ adminId: null }],
-          ...(q
-            ? {
-                AND: [
-                  {
-                    OR: [
-                      { title: { contains: q, mode: "insensitive" } },
-                      { artist: { contains: q, mode: "insensitive" } },
-                    ],
-                  },
-                ],
-              }
-            : {}),
-        },
-        take: 100,
+      const limit = Math.min(Math.max(Number.parseInt(request.query.limit ?? "40", 10) || 40, 1), 100);
+      const offset = Math.max(Number.parseInt(request.query.offset ?? "0", 10) || 0, 0);
+      const where = {
+        source: "MIDI" as const,
+        OR: event.adminId ? [{ adminId: event.adminId }, { adminId: null }] : [{ adminId: null }],
+        ...(q
+          ? {
+              AND: [
+                {
+                  OR: [
+                    { title: { contains: q, mode: "insensitive" as const } },
+                    { artist: { contains: q, mode: "insensitive" as const } },
+                  ],
+                },
+              ],
+            }
+          : {}),
+      };
+      const rows = await prisma.song.findMany({
+        where,
+        take: limit + 1,
+        skip: offset,
         orderBy: [{ artist: "asc" }, { title: "asc" }],
       });
-      return reply.send({ songs });
+      const hasMore = rows.length > limit;
+      const songs = hasMore ? rows.slice(0, limit) : rows;
+      return reply.send({ songs, hasMore });
     }
   );
 

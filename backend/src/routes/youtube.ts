@@ -21,7 +21,7 @@ const previewSchema = z.object({
 
 export async function registerYoutubeRoutes(fastify: FastifyInstance): Promise<void> {
   /** Ricerca brani su YouTube per il pubblico (richiede join alla serata). */
-  fastify.get<{ Querystring: { q?: string; limit?: string } }>(
+  fastify.get<{ Querystring: { q?: string; limit?: string; offset?: string } }>(
     "/youtube/search",
     { preHandler: [requireJwt] },
     async (request, reply) => {
@@ -30,13 +30,19 @@ export async function registerYoutubeRoutes(fastify: FastifyInstance): Promise<v
         return reply.code(400).send({ error: "Parametro q troppo corto (min 2 caratteri)" });
       }
       const limit = request.query.limit ? Number(request.query.limit) : 8;
+      const offset = request.query.offset ? Number(request.query.offset) : 0;
       const jwt = request.user as JwtPayload;
       const event = jwt.eventId
         ? await prisma.event.findUnique({ where: { id: jwt.eventId }, select: { adminId: true } })
         : null;
       try {
-        const results = await searchYoutube(q, Number.isFinite(limit) ? limit : 8, event?.adminId);
-        return reply.send({ results });
+        const { results, hasMore } = await searchYoutube(
+          q,
+          Number.isFinite(limit) ? limit : 8,
+          Number.isFinite(offset) ? offset : 0,
+          event?.adminId
+        );
+        return reply.send({ results, hasMore });
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         return reply.code(502).send({ error: msg });

@@ -4,6 +4,7 @@ import soundtouchProcessorUrl from "@soundtouchjs/audio-worklet/processor?url";
 export type SoundTouchVideoSession = {
   ctx: AudioContext;
   node: SoundTouchNode;
+  source: MediaElementAudioSourceNode;
   dispose: () => void;
 };
 
@@ -12,14 +13,14 @@ const registeredContexts = new WeakSet<BaseAudioContext>();
 
 /**
  * Instrada l'audio del video attraverso SoundTouch (pitch in semitoni, tempo invariato).
- * Il video va muto: l'audio esce solo dal grafo Web Audio.
+ * Non impostare `video.muted`: con MediaElementSource un elemento muto produce silenzio nel grafo.
  */
 export async function connectSoundTouchVideo(
   video: HTMLVideoElement,
   semitones: number
 ): Promise<SoundTouchVideoSession> {
+  if (!video.crossOrigin) video.crossOrigin = "anonymous";
   video.preservesPitch = false;
-  video.muted = true;
   video.playbackRate = 1;
 
   const ctx = new AudioContext({ latencyHint: "playback" });
@@ -33,11 +34,15 @@ export async function connectSoundTouchVideo(
   const source = ctx.createMediaElementSource(video);
   source.connect(node);
   node.playbackRate.value = 1;
-  node.pitchSemitones.value = semitones;
+  const pitchParam = node.pitchSemitones;
+  if (pitchParam) pitchParam.value = semitones;
+
+  await ctx.resume().catch(() => {});
 
   return {
     ctx,
     node,
+    source,
     dispose: () => {
       try {
         source.disconnect();

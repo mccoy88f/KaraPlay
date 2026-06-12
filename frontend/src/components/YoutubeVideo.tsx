@@ -36,10 +36,13 @@ export function YoutubeVideo({ bookingId, title, transposeSemitones = 0, onEnded
 
   useEffect(() => {
     transposeRef.current = transposeSemitones;
-    if (sessionRef.current) {
-      sessionRef.current.node.pitchSemitones.value = transposeSemitones;
-    }
+    const pitchParam = sessionRef.current?.node.pitchSemitones;
+    if (pitchParam) pitchParam.value = transposeSemitones;
   }, [transposeSemitones]);
+
+  const resumeAudio = useCallback(async () => {
+    await sessionRef.current?.ctx.resume().catch(() => {});
+  }, []);
 
   const bumpControlsVisibility = useCallback(() => {
     setControlsVisible(true);
@@ -59,7 +62,7 @@ export function YoutubeVideo({ bookingId, title, transposeSemitones = 0, onEnded
     if (!video) return;
     try {
       await ensureSession();
-      await sessionRef.current!.ctx.resume();
+      await resumeAudio();
       await video.play();
       setStarted(true);
       setPaused(false);
@@ -73,7 +76,7 @@ export function YoutubeVideo({ bookingId, title, transposeSemitones = 0, onEnded
     const video = videoRef.current;
     if (!video) return;
     if (video.paused) {
-      void video.play().catch(() => {});
+      void resumeAudio().then(() => video.play()).catch(() => {});
       setPaused(false);
     } else {
       video.pause();
@@ -82,13 +85,19 @@ export function YoutubeVideo({ bookingId, title, transposeSemitones = 0, onEnded
     bumpControlsVisibility();
   }
 
+  function handleFrameClick(e: React.MouseEvent) {
+    if (!started) return;
+    if ((e.target as HTMLElement).closest("[data-stage-controls]")) return;
+    togglePause();
+  }
+
   function restart() {
     const video = videoRef.current;
     if (!video) return;
     video.currentTime = 0;
     setTransportSec(0);
     setPaused(false);
-    void video.play().catch(() => {});
+    void resumeAudio().then(() => video.play()).catch(() => {});
     bumpControlsVisibility();
   }
 
@@ -144,11 +153,13 @@ export function YoutubeVideo({ bookingId, title, transposeSemitones = 0, onEnded
       className={STAGE_SHELL_CLASS}
       onMouseMove={started ? bumpControlsVisibility : undefined}
       onTouchStart={started ? bumpControlsVisibility : undefined}
+      onClick={started ? handleFrameClick : undefined}
     >
       <video
         ref={videoRef}
-        className="h-full w-full object-contain"
+        className={`h-full w-full object-contain ${started ? "cursor-pointer" : ""}`}
         src={videoUrl}
+        crossOrigin="anonymous"
         preload="auto"
         playsInline
       />

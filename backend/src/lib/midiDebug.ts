@@ -79,7 +79,7 @@ export function analyzeMidiBuffer(buf: Buffer): MidiDebugPayload {
   const uniqueGleitzInstrumentsToLoad = [...gleitzSet];
 
   const logLines: string[] = [
-    "=== Debug MIDI karaoke (KaraokeGame) ===",
+    "=== Debug MIDI karaoke (KaraPlay) ===",
     `Durata file: ${formatDuration(midi.duration)} (${midi.duration.toFixed(2)} s)`,
     `È normale avere più tracce (melodia, accordi, basso, batteria, ecc.).`,
     "",

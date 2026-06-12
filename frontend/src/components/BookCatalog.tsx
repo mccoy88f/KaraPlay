@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   apiBookMidi,
   apiBookYoutube,
@@ -10,6 +10,9 @@ import {
 } from "../api/client";
 import { MidiPreviewButton } from "./MidiPreviewButton";
 
+const MIDI_PAGE = 40;
+const YT_PAGE = 10;
+
 function formatDuration(seconds: number): string {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 }
@@ -18,50 +21,54 @@ export function BookCatalog() {
   const event = getStoredEvent();
   const [q, setQ] = useState("");
   const [songs, setSongs] = useState<SongDto[]>([]);
+  const [songsHasMore, setSongsHasMore] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [songsLoadingMore, setSongsLoadingMore] = useState(false);
   const [bookingId, setBookingId] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
   const [ytResults, setYtResults] = useState<YoutubeSearchResult[]>([]);
+  const [ytHasMore, setYtHasMore] = useState(false);
   const [ytSearching, setYtSearching] = useState(false);
+  const [ytLoadingMore, setYtLoadingMore] = useState(false);
   /** Query dell'ultima ricerca YouTube completata (i risultati restano finché non cambia). */
   const [ytQueryDone, setYtQueryDone] = useState<string | null>(null);
   /** Id del video con l'anteprima aperta (una alla volta). */
   const [ytPreviewId, setYtPreviewId] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!event) return;
-    let cancelled = false;
-    void (async () => {
-      setLoading(true);
+  const listEndRef = useRef<HTMLLIElement | null>(null);
+
+  const loadSongs = useCallback(
+    async (query: string, offset: number, append: boolean) => {
+      if (!event) return;
+      if (append) setSongsLoadingMore(true);
+      else setLoading(true);
       setErr(null);
       try {
-        const data = await apiSearchSongs(event.id);
-        if (!cancelled) setSongs(data.songs);
+        const data = await apiSearchSongs(event.id, query || undefined, MIDI_PAGE, offset);
+        setSongs((prev) => (append ? [...prev, ...data.songs] : data.songs));
+        setSongsHasMore(data.hasMore);
       } catch (e) {
-        if (!cancelled) {
-          setErr(e instanceof Error ? e.message : "Errore");
-          setSongs([]);
-        }
+        if (!append) setSongs([]);
+        setSongsHasMore(false);
+        setErr(e instanceof Error ? e.message : "Errore");
       } finally {
-        if (!cancelled) setLoading(false);
+        setLoading(false);
+        setSongsLoadingMore(false);
       }
-    })();
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [event?.id]);
+    },
+    [event]
+  );
 
-  // il catalogo MIDI si filtra in tempo reale mentre si digita
-  const midiMatches = useMemo(() => {
-    if (!q.trim()) return songs;
-    const l = q.toLowerCase();
-    return songs.filter(
-      (s) => s.title.toLowerCase().includes(l) || s.artist.toLowerCase().includes(l)
-    );
-  }, [songs, q]);
+  useEffect(() => {
+    if (!event) return;
+    const delay = q.trim() ? 300 : 0;
+    const timer = window.setTimeout(() => {
+      void loadSongs(q.trim(), 0, false);
+    }, delay);
+    return () => window.clearTimeout(timer);
+  }, [event?.id, q, loadSongs]);
 
   // i risultati YouTube valgono solo per la ricerca che li ha prodotti
   const showYt = ytQueryDone !== null && ytQueryDone === q.trim();
@@ -75,17 +82,60 @@ export function BookCatalog() {
     setYtSearching(true);
     setYtPreviewId(null);
     try {
-      const data = await apiSearchYoutube(query);
+      const data = await apiSearchYoutube(query, YT_PAGE, 0);
       setYtResults(data.results);
+      setYtHasMore(data.hasMore);
       setYtQueryDone(query);
     } catch (e2) {
       setErr(e2 instanceof Error ? e2.message : "Ricerca YouTube fallita");
       setYtResults([]);
+      setYtHasMore(false);
       setYtQueryDone(query);
     } finally {
       setYtSearching(false);
     }
   }
+
+  async function loadMoreSongs() {
+    if (!songsHasMore || songsLoadingMore || loading) return;
+    await loadSongs(q.trim(), songs.length, true);
+  }
+
+  async function loadMoreYoutube() {
+    const query = q.trim();
+    if (!showYt || !ytHasMore || ytLoadingMore || ytSearching || query.length < 2) return;
+    setYtLoadingMore(true);
+    setErr(null);
+    try {
+      const data = await apiSearchYoutube(query, YT_PAGE, ytResults.length);
+      setYtResults((prev) => [...prev, ...data.results]);
+      setYtHasMore(data.hasMore);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Caricamento risultati fallito");
+    } finally {
+      setYtLoadingMore(false);
+    }
+  }
+
+  const autoLoadRef = useRef<() => void>(() => {});
+  autoLoadRef.current = () => {
+    if (songsHasMore && !songsLoadingMore && !loading) void loadMoreSongs();
+    else if (showYt && ytHasMore && !ytLoadingMore && !ytSearching) void loadMoreYoutube();
+  };
+
+  // Scorrimento fino in fondo: carica altri risultati automaticamente
+  useEffect(() => {
+    const el = listEndRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) autoLoadRef.current();
+      },
+      { rootMargin: "120px" }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [songs.length, ytResults.length, showYt]);
 
   async function book(song: SongDto) {
     if (!event) return;
@@ -125,6 +175,8 @@ export function BookCatalog() {
     );
   }
 
+  const showLoadMore = songsHasMore || (showYt && ytHasMore);
+
   return (
     <div className="p-5 md:p-6">
       <h2 className="font-display text-lg font-semibold text-white">Prenota un brano</h2>
@@ -151,16 +203,16 @@ export function BookCatalog() {
       <p className="mt-2 text-xs text-zinc-600">
         Il catalogo <span className="rounded border border-amber-500/40 bg-amber-500/10 px-1 text-amber-200/90">MIDI</span>{" "}
         si filtra mentre scrivi; con <strong className="text-zinc-400">Cerca</strong> arrivano anche i video{" "}
-        <span className="rounded border border-red-500/40 bg-red-500/10 px-1 text-red-200/90">YouTube</span>{" "}
-        (entrano in coda dopo l&apos;ok di chi presenta).
+        <span className="rounded border border-red-500/40 bg-red-500/10 px-1 text-red-200/90">YouTube</span>. Scorri in
+        fondo o usa <strong className="text-zinc-400">Carica altri</strong> per vedere più risultati.
       </p>
 
-      {loading && <p className="mt-3 text-sm text-zinc-500">Caricamento catalogo…</p>}
+      {loading && songs.length === 0 && <p className="mt-3 text-sm text-zinc-500">Caricamento catalogo…</p>}
       {err && <p className="mt-3 text-sm text-red-400">{err}</p>}
       {msg && <p className="mt-3 text-sm text-emerald-400">{msg}</p>}
 
       <ul className="mt-4 max-h-[26rem] space-y-2 overflow-y-auto">
-        {midiMatches.map((s) => (
+        {songs.map((s) => (
           <li key={s.id} className="flex items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-950/60 p-3">
             <div className="min-w-0 flex-1">
               <p className="truncate font-medium text-white">
@@ -237,15 +289,42 @@ export function BookCatalog() {
               )}
             </li>
           ))}
+
+        <li ref={listEndRef} className="list-none" aria-hidden />
       </ul>
 
-      {!loading && midiMatches.length === 0 && !showYt && (
+      {showLoadMore && (
+        <div className="mt-3 flex flex-wrap justify-center gap-2">
+          {songsHasMore && (
+            <button
+              type="button"
+              disabled={songsLoadingMore || loading}
+              onClick={() => void loadMoreSongs()}
+              className="rounded-lg border border-zinc-700 px-4 py-2 text-sm text-zinc-200 hover:bg-zinc-800 disabled:opacity-50"
+            >
+              {songsLoadingMore ? "Carico…" : "Carica altri MIDI"}
+            </button>
+          )}
+          {showYt && ytHasMore && (
+            <button
+              type="button"
+              disabled={ytLoadingMore || ytSearching}
+              onClick={() => void loadMoreYoutube()}
+              className="rounded-lg border border-zinc-700 px-4 py-2 text-sm text-zinc-200 hover:bg-zinc-800 disabled:opacity-50"
+            >
+              {ytLoadingMore ? "Carico…" : "Carica altri video YouTube"}
+            </button>
+          )}
+        </div>
+      )}
+
+      {!loading && songs.length === 0 && !showYt && (
         <p className="mt-4 text-center text-sm text-zinc-500">
-          Nessun brano nel catalogo per «{q}». Premi <strong className="text-zinc-300">Cerca</strong> per
-          trovarlo su YouTube.
+          Nessun brano nel catalogo{q.trim() ? ` per «${q.trim()}»` : ""}. Premi{" "}
+          <strong className="text-zinc-300">Cerca</strong> per trovarlo su YouTube.
         </p>
       )}
-      {showYt && !ytSearching && midiMatches.length === 0 && ytResults.length === 0 && (
+      {showYt && !ytSearching && songs.length === 0 && ytResults.length === 0 && (
         <p className="mt-4 text-center text-sm text-zinc-500">Nessun risultato, né MIDI né YouTube.</p>
       )}
     </div>

@@ -24,7 +24,7 @@ export async function sendOtpEmail(to: string, code: string): Promise<void> {
   await transport.sendMail({
     from,
     to,
-    subject: "Il tuo codice KaraokeGame",
+    subject: "Il tuo codice KaraPlay",
     text: `Il tuo codice è: ${code}\nValido per 10 minuti.`,
   });
 }
