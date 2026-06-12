@@ -252,10 +252,6 @@ export function Admin() {
           <Link to="/display" className="hover:text-zinc-400">
             Schermo sala
           </Link>
-          <span className="mx-3 text-zinc-800">·</span>
-          <Link to="/stage" className="hover:text-zinc-400">
-            Palco
-          </Link>
         </footer>
       </div>
     </div>

@@ -91,12 +91,6 @@ export function JoinHome() {
             <span aria-hidden="true" className="text-zinc-700">
               ·
             </span>
-            <Link to="/stage" className="hover:text-white">
-              Palco
-            </Link>
-            <span aria-hidden="true" className="text-zinc-700">
-              ·
-            </span>
             <Link to="/join/enter" className="hover:text-white">
               Cambia nickname
             </Link>

@@ -57,11 +57,9 @@ type Props = {
    * In quel caso `songId` non è usato per il fetch del MIDI (serve comunque per coerenza tipo).
    */
   remoteMidiUrl?: string | null;
-  /** Tempo di trasporto in secondi a ogni frame: il display lo rilancia via socket per /stage. */
-  onTick?: (t: number) => void;
 };
 
-export function KaraokePlayer({ songId, title, artist, lrcPath, soundfontBankId, remoteMidiUrl, onTick }: Props) {
+export function KaraokePlayer({ songId, title, artist, lrcPath, soundfontBankId, remoteMidiUrl }: Props) {
   const bankId = soundfontBankId ?? getSoundfontBank(null).id;
   const bank = getSoundfontBank(bankId);
 
@@ -358,9 +356,7 @@ export function KaraokePlayer({ songId, title, artist, lrcPath, soundfontBankId,
     const source = timeSourceRef.current;
     if (!source) return;
     const tick = () => {
-      const t = source();
-      setTransportSec(t);
-      onTick?.(t);
+      setTransportSec(source());
       rafRef.current = requestAnimationFrame(tick);
     };
     rafRef.current = requestAnimationFrame(tick);

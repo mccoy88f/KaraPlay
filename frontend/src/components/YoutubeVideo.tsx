@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 
 const base = import.meta.env.VITE_API_URL ?? "";
 
@@ -6,29 +6,17 @@ type Props = {
   /** Il video scaricato da yt-dlp è servito per prenotazione (/api/media/yt/:bookingId). */
   bookingId: string;
   title: string;
-  onTick?: (t: number) => void;
 };
 
 /**
  * Video YouTube pre-scaricato sul server: riproduzione senza pubblicità.
  * Riempe tutto lo spazio disponibile: il display lascia in alto solo nome e voti.
  */
-export function YoutubeVideo({ bookingId, title, onTick }: Props) {
+export function YoutubeVideo({ bookingId, title }: Props) {
   const videoUrl = `${base}/api/media/yt/${encodeURIComponent(bookingId)}`;
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const rafRef = useRef(0);
   const [playing, setPlaying] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!playing) return;
-    const tick = () => {
-      onTick?.(videoRef.current?.currentTime ?? 0);
-      rafRef.current = requestAnimationFrame(tick);
-    };
-    rafRef.current = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(rafRef.current);
-  }, [playing, onTick]);
 
   async function start() {
     setError(null);

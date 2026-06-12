@@ -33,7 +33,6 @@ Al primo avvio il backend applica le migrazioni e il seed: serata demo con PIN
 | `/join` | Pubblico (smartphone) |
 | `/display` | Proiettore / TV |
 | `/admin` | Host / DJ (login richiesto) |
-| `/stage` | Cantante sul palco |
 
 ## Sviluppo locale
 

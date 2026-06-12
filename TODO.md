@@ -100,9 +100,9 @@ le voci `[ ]` restano da fare per arrivare a un progetto completo e funzionante 
   (schermata d'attesa) e tab Classifica su /join (serata + storica).
   - [ ] La classifica storica usa la media semplice; la spec chiede una media pesata
     sulle esibizioni recenti.
-- [x] **Vista palco `/stage`**: countdown 3-2-1 all'avvio, testo sincronizzato ingrandito
-  (clock condiviso: il display rilancia il tempo del player via socket `transport:tick`,
-  il palco interpola tra i tick), media voti live, prossimi cantanti in attesa.
+- [x] ~~Vista palco `/stage`~~ **rimossa per scelta di prodotto**: era utile solo nei
+  setup a due schermi e duplicava il display (che mostra già i testi). Eliminati pagina,
+  rotta, link e il relay socket `transport:tick` che la sincronizzava.
 - [x] **Verifica email/OTP**: tab Profilo su /join con statistiche personali e flusso
   email → codice OTP → verifica (richiede SMTP configurato per l'invio reale).
 - [x] **QR code sul display**: nella schermata di attesa, con PIN e link diretto

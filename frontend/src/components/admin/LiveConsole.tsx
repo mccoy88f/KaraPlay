@@ -444,15 +444,6 @@ export function LiveConsole({ authHeader, isSuper }: Props) {
                 >
                   apri schermo sala ↗
                 </a>
-                <span className="mx-2 text-zinc-700">·</span>
-                <a
-                  href={`/stage?eventId=${event.id}`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-cyan-300 underline-offset-2 hover:underline"
-                >
-                  palco ↗
-                </a>
               </p>
             </div>
             <div className="flex flex-wrap gap-1.5" role="group" aria-label="Stato serata">

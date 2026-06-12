@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { io, type Socket } from "socket.io-client";
 import QRCode from "qrcode";
@@ -79,20 +79,6 @@ export function Display() {
   const socketRef = useRef<Socket | null>(null);
   const liveRef = useRef<PerfPayload | null>(null);
   liveRef.current = live;
-  const lastTickEmitRef = useRef(0);
-
-  /** Rilancia il tempo del player alla room (clock per /stage); throttle a ~3 emit/s. */
-  const handleTick = useCallback(
-    (t: number) => {
-      const now = Date.now();
-      if (now - lastTickEmitRef.current < 350) return;
-      lastTickEmitRef.current = now;
-      const perfId = liveRef.current?.performance.id;
-      if (!perfId || !eventId) return;
-      socketRef.current?.emit("transport:tick", { eventId, performanceId: perfId, t });
-    },
-    [eventId]
-  );
 
   // Scadenza commenti overlay
   useEffect(() => {
@@ -332,7 +318,6 @@ export function Display() {
                 artist={live.song.artist}
                 lrcPath={live.song.lrcPath}
                 soundfontBankId={sfBank}
-                onTick={handleTick}
               />
             ) : live.song?.source === "YOUTUBE" && live.booking?.id ? (
               // Video pre-scaricato sul server (la Song esiste solo a download completato): no pubblicità.
@@ -340,7 +325,6 @@ export function Display() {
                 key={live.performance.id}
                 bookingId={live.booking.id}
                 title={live.song.title}
-                onTick={handleTick}
               />
             ) : live.booking?.ytUrl ? (
               <YoutubeEmbed

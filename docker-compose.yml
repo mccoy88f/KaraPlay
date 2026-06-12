@@ -3,7 +3,7 @@
 # Portainer:         Stacks → Add stack → Repository
 #                    URL del repo, branch "main", compose path "docker-compose.yml".
 #                    Portainer clona il repo e builda le immagini da solo.
-# App su  http://<host>:8083  (pubblico /join, host /admin, schermo /display, palco /stage)
+# App su  http://<host>:8083  (pubblico /join, host /admin, schermo /display)
 
 services:
   frontend:
