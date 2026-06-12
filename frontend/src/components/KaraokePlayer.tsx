@@ -1,12 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Midi } from "@tonejs/midi";
-import * as Tone from "tone";
 import Soundfont from "soundfont-player";
 import { Sequencer, WorkletSynthesizer } from "spessasynth_lib";
 import spessaWorkletUrl from "spessasynth_lib/dist/spessasynth_processor.min.js?url";
 import { currentLrcIndex, parseLrc, type LrcLine } from "../lib/lrc";
 import { extractMidiLyrics } from "../lib/midiLyrics";
-import { LyricsPanel } from "./LyricsPanel";
 import { gleitzNameForPatch } from "../lib/gmPatchToGleitz";
 import { getSoundfontBank } from "../lib/soundfontBanks";
 import type { SoundfontBankId } from "../lib/soundfontBanks";
@@ -29,20 +27,6 @@ function fetchSf2(file: string): Promise<ArrayBuffer> {
   p.catch(() => sf2Cache.delete(file));
   sf2Cache.set(file, p);
   return p;
-}
-
-/** Chiamare sincronamente dall’handler onClick/onPointerDown prima di qualsiasi await (policy Chrome). */
-function primeAudioFromUserGesture(): void {
-  try {
-    const ctx = Tone.getContext();
-    void ctx.resume();
-    const ac = ctx.rawContext as AudioContext;
-    if (ac.state === "suspended") {
-      void ac.resume();
-    }
-  } catch {
-    /* contesto non ancora creato */
-  }
 }
 
 type Props = {
@@ -85,10 +69,8 @@ export function KaraokePlayer({ songId, title, artist, lrcPath, soundfontBankId,
 
   const disposeRef = useRef<(() => void) | null>(null);
   const rafRef = useRef(0);
-  const t0Ref = useRef(0);
-  const acRef = useRef<AudioContext | null>(null);
   const midiBufRef = useRef<ArrayBuffer | null>(null);
-  /** Sorgente del tempo di trasporto (per LRC): impostata dal motore di playback attivo. */
+  /** Sorgente del tempo di trasporto (per i testi): impostata dal motore di playback attivo. */
   const timeSourceRef = useRef<(() => number) | null>(null);
 
   useEffect(() => {
@@ -128,7 +110,7 @@ export function KaraokePlayer({ songId, title, artist, lrcPath, soundfontBankId,
         if (cancelled) return;
         setLrcLines(parseLrc(text));
       } catch {
-        /* ignore */
+        /* senza .lrc valgono i testi incorporati nel MIDI */
       }
     })();
     return () => {
@@ -144,7 +126,7 @@ export function KaraokePlayer({ songId, title, artist, lrcPath, soundfontBankId,
     disposeRef.current?.();
     disposeRef.current = null;
 
-    const ac = new AudioContext();
+    const ac = new AudioContext({ latencyHint: "playback" });
     setLoadingSf(true);
     try {
       await ac.resume();
@@ -156,7 +138,7 @@ export function KaraokePlayer({ songId, title, artist, lrcPath, soundfontBankId,
       await synth.soundBankManager.addSoundBank(sfBuf.slice(0), "main");
       await synth.isReady;
 
-      // skipToFirstNoteOn falso: il tempo deve restare allineato ai timestamp LRC.
+      // skipToFirstNoteOn falso: il tempo deve restare allineato ai timestamp dei testi.
       const seq = new Sequencer(synth, { skipToFirstNoteOn: false });
       seq.loopCount = 0;
       let playBuf = midiBuf.slice(0);
@@ -205,40 +187,42 @@ export function KaraokePlayer({ songId, title, artist, lrcPath, soundfontBankId,
     }
   }, [midi, bank.sf2File, title, onEnded, mutedTrack]);
 
+  /**
+   * Motore Gleitz (campioni mp3 pre-renderizzati): AudioContext puro, lo stesso schema
+   * dell'anteprima nel catalogo. Il contesto di Tone.js usato in precedenza non suonava
+   * (wrapper standardized-audio-context): Tone è stato rimosso del tutto.
+   * Limite noto: niente percussioni (i banchi Gleitz non hanno i drum kit; col banco SF2 ci sono).
+   */
   const startGleitzPlayback = useCallback(async () => {
     if (!midi) return;
     disposeRef.current?.();
     disposeRef.current = null;
 
-    primeAudioFromUserGesture();
-    await Tone.start();
-    const toneCtx = Tone.getContext();
-    await toneCtx.resume();
-    const ac = toneCtx.rawContext as AudioContext;
-    if (ac.state === "suspended") {
-      await ac.resume();
-    }
-    acRef.current = ac;
-
-    const folder = bank.gleitzFolder;
-    const nameToUrl = (name: string, _sf: string, format: string) => {
-      const fmt = format === "ogg" ? "ogg" : "mp3";
-      const root = base || "";
-      return `${root}/api/media/soundfont/${encodeURIComponent(folder)}/${encodeURIComponent(`${name}-${fmt}.js`)}`;
-    };
+    const ac = new AudioContext({ latencyHint: "playback" });
+    setLoadingSf(true);
+    setSfProgress(null);
 
     const players = new Map<string, Awaited<ReturnType<typeof Soundfont.instrument>>>();
+    const cleanupAc = () => void ac.close().catch(() => {});
 
-    const audibleTracks = midi.tracks.filter((_t, i) => i + 1 !== (mutedTrack ?? -1));
-    const melodicTracks = audibleTracks.filter((t) => t.notes.length > 0 && t.channel !== 9);
-    const drumTracks = audibleTracks.filter((t) => t.notes.length > 0 && t.channel === 9);
-
-    const neededInstruments = [...new Set(melodicTracks.map((t) => gleitzNameForPatch(t.instrument.number)))];
-
-    setLoadingSf(true);
-    setSfProgress({ done: 0, total: neededInstruments.length });
-    let loaded = 0;
     try {
+      await ac.resume();
+
+      const folder = bank.gleitzFolder;
+      const nameToUrl = (name: string, _sf: string, format: string) => {
+        const fmt = format === "ogg" ? "ogg" : "mp3";
+        return `${base}/api/media/soundfont/${encodeURIComponent(folder)}/${encodeURIComponent(`${name}-${fmt}.js`)}`;
+      };
+
+      const audibleTracks = midi.tracks.filter((_t, i) => i + 1 !== (mutedTrack ?? -1));
+      const melodicTracks = audibleTracks.filter((t) => t.notes.length > 0 && t.channel !== 9);
+      if (melodicTracks.length === 0) {
+        throw new Error("Il file non contiene tracce melodiche riproducibili");
+      }
+
+      const neededInstruments = [...new Set(melodicTracks.map((t) => gleitzNameForPatch(t.instrument.number)))];
+      setSfProgress({ done: 0, total: neededInstruments.length });
+      let loaded = 0;
       // I file con molte tracce (GM completi) richiedono 10+ strumenti: in parallelo, con progresso.
       await Promise.all(
         neededInstruments.map(async (gleitzName) => {
@@ -251,71 +235,49 @@ export function KaraokePlayer({ songId, title, artist, lrcPath, soundfontBankId,
           setSfProgress({ done: loaded, total: neededInstruments.length });
         })
       );
-    } catch (e) {
-      console.error("[karaoke] caricamento soundfont fallito", e);
+
       setLoadingSf(false);
       setSfProgress(null);
-      setLoadError(e instanceof Error ? e.message : "Errore caricamento soundfont");
-      return;
-    }
 
-    setLoadingSf(false);
-    setSfProgress(null);
-
-    const drumSynth = new Tone.PolySynth(Tone.Synth).toDestination();
-    drumSynth.volume.value = -12;
-
-    try {
-      const leadSec = 0.25;
-      const t0 = ac.currentTime + leadSec;
-
-      const scheduleAt = (offsetFromT0: number) => Math.max(t0 + offsetFromT0, ac.currentTime + 0.02);
-
-      /** Brani con migliaia di note: un solo loop sincrono blocca il main thread e l’audio non parte (file corto ok). */
-      const yieldEvery = 350;
-      let scheduled = 0;
-      const yieldToMain = () => new Promise<void>((r) => setTimeout(r, 0));
-
-      let songZeroAbs = Infinity;
-      const markZero = (when: number, noteTime: number) => {
-        songZeroAbs = Math.min(songZeroAbs, when - noteTime);
-      };
-
+      // Tutte le note ordinate per tempo: la programmazione è a finestra scorrevole.
+      // Schedularle tutte subito creava ~2 nodi audio per nota (decine di migliaia):
+      // il thread audio collassava — clock quasi fermo sul display, gracchiare in anteprima.
+      type Ev = { time: number; name: string; duration: number; gain: number; inst: ReturnType<typeof players.get> };
+      const events: Ev[] = [];
       for (const track of melodicTracks) {
-        const gleitzName = gleitzNameForPatch(track.instrument.number);
-        const inst = players.get(gleitzName)!;
+        const inst = players.get(gleitzNameForPatch(track.instrument.number))!;
         for (const note of track.notes) {
-          scheduled += 1;
-          if (scheduled % yieldEvery === 0) await yieldToMain();
-          const when = scheduleAt(note.time);
-          markZero(when, note.time);
-          const gain = Math.max(0.05, note.velocity ?? 0.75);
-          const dur = Math.max(0.02, note.duration);
+          events.push({
+            time: note.time,
+            name: note.name,
+            duration: Math.max(0.02, note.duration),
+            gain: Math.max(0.05, note.velocity ?? 0.75),
+            inst,
+          });
+        }
+      }
+      events.sort((a, b) => a.time - b.time);
+
+      const LOOKAHEAD = 8; // secondi di note programmate in anticipo
+      const PUMP_MS = 1500;
+      const songZero = ac.currentTime + 0.35; // tempo-brano 0 in tempo-contesto
+      timeSourceRef.current = () => Math.max(0, ac.currentTime - songZero);
+
+      let cursor = 0;
+      const pump = () => {
+        const horizon = ac.currentTime - songZero + LOOKAHEAD;
+        while (cursor < events.length && events[cursor].time <= horizon) {
+          const ev = events[cursor++];
+          const when = Math.max(songZero + ev.time, ac.currentTime + 0.02);
           try {
-            inst.play(note.name, when, { duration: dur, gain });
+            ev.inst!.play(ev.name, when, { duration: ev.duration, gain: ev.gain });
           } catch {
             /* nota fuori dal range del campione: il resto del brano continua */
           }
         }
-      }
-
-      for (const track of drumTracks) {
-        for (const note of track.notes) {
-          scheduled += 1;
-          if (scheduled % yieldEvery === 0) await yieldToMain();
-          const when = scheduleAt(note.time);
-          markZero(when, note.time);
-          const vel = note.velocity ?? 0.75;
-          try {
-            drumSynth.triggerAttackRelease(note.name, note.duration, when, vel);
-          } catch {
-            /* polifonia/timing fuori range: nota saltata */
-          }
-        }
-      }
-
-      t0Ref.current = Number.isFinite(songZeroAbs) ? songZeroAbs : t0;
-      timeSourceRef.current = () => Math.max(0, ac.currentTime - t0Ref.current);
+      };
+      pump();
+      const pumpTimer = window.setInterval(pump, PUMP_MS);
 
       const endAt = Math.max(0.5, midi.duration);
       const endTimer = window.setTimeout(() => {
@@ -328,6 +290,7 @@ export function KaraokePlayer({ songId, title, artist, lrcPath, soundfontBankId,
 
       disposeRef.current = () => {
         window.clearTimeout(endTimer);
+        window.clearInterval(pumpTimer);
         for (const p of players.values()) {
           try {
             p.stop?.();
@@ -336,15 +299,16 @@ export function KaraokePlayer({ songId, title, artist, lrcPath, soundfontBankId,
           }
         }
         players.clear();
-        drumSynth.dispose();
+        cleanupAc();
       };
     } catch (e) {
-      // Prima l'eccezione interrompeva tutto in silenzio: il pulsante restava lì e "non accadeva niente".
-      console.error("[karaoke] scheduling fallito", e);
-      drumSynth.dispose();
+      console.error("[karaoke] avvio gleitz fallito", e);
+      setLoadingSf(false);
+      setSfProgress(null);
       setLoadError(e instanceof Error ? e.message : "Errore durante l'avvio del brano");
+      cleanupAc();
     }
-  }, [midi, bank.gleitzFolder, base, onEnded, mutedTrack]);
+  }, [midi, bank.gleitzFolder, onEnded, mutedTrack]);
 
   const startPlayback = useCallback(async () => {
     try {
@@ -387,56 +351,70 @@ export function KaraokePlayer({ songId, title, artist, lrcPath, soundfontBankId,
   // Il file .lrc (se caricato dall'admin) ha priorità sui testi incorporati nel MIDI.
   const effectiveLines = lrcLines.length > 0 ? lrcLines : midiLyrics;
   const idx = useMemo(() => currentLrcIndex(effectiveLines, transportSec), [effectiveLines, transportSec]);
+  const idxShow = idx < 0 ? 0 : idx;
 
+  // Stessa cornice "palco" dei video YouTube: card nera che riempe lo schermo, overlay di avvio.
   return (
-    <div className="flex w-full max-w-5xl flex-col items-center gap-8">
-      <div>
-        <p className="text-lg text-zinc-300">
-          <span className="font-semibold text-white">{artist}</span>
-        </p>
-        <h1 className="mt-1 text-4xl font-bold text-white md:text-6xl">{title}</h1>
-        <p className="mt-3 flex flex-wrap items-center justify-center gap-2 text-xs uppercase tracking-widest text-zinc-500">
-          <span className="rounded-full border border-amber-500/40 bg-amber-500/10 px-3 py-1 text-amber-200/90">
-            Karaoke MIDI
+    <div className="relative min-h-[24rem] w-full flex-1 overflow-hidden rounded-2xl border border-zinc-800 bg-black shadow-2xl shadow-black/60">
+      {playing ? (
+        <div className="flex h-full flex-col items-center justify-center gap-6 px-8 py-10 text-center md:gap-10">
+          {effectiveLines.length > 0 ? (
+            <>
+              <p className="min-h-[1.5em] text-2xl text-zinc-600 md:text-3xl">
+                {effectiveLines[idxShow - 1]?.text ?? " "}
+              </p>
+              <p className="text-4xl font-semibold leading-tight text-fuchsia-100 drop-shadow-[0_0_30px_rgba(232,121,249,0.3)] md:text-6xl">
+                {effectiveLines[idxShow]?.text ?? "…"}
+              </p>
+              <p className="min-h-[1.5em] text-2xl text-zinc-500 md:text-3xl">
+                {effectiveLines[idxShow + 1]?.text ?? " "}
+              </p>
+            </>
+          ) : (
+            <>
+              <h1 className="font-display text-4xl font-bold text-white md:text-6xl">{title}</h1>
+              <p className="text-xl text-zinc-400">{artist}</p>
+              <p className="text-sm text-zinc-600">
+                Nessun testo nel file (né .lrc caricato): base strumentale.
+              </p>
+            </>
+          )}
+        </div>
+      ) : (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-black/60 px-6 text-center">
+          <p className="font-display max-w-3xl text-2xl font-semibold text-white md:text-4xl">{title}</p>
+          <p className="text-zinc-400">{artist}</p>
+          <span className="flex flex-wrap items-center justify-center gap-2">
+            <span className="rounded-full border border-amber-500/40 bg-amber-500/10 px-3 py-1 text-xs uppercase tracking-widest text-amber-200/90">
+              🎹 Karaoke MIDI
+            </span>
+            <span className="rounded-full border border-zinc-700 bg-zinc-900/80 px-3 py-1 text-xs uppercase tracking-widest text-zinc-400">
+              {bank.shortLabel}
+            </span>
           </span>
-          <span className="rounded-full border border-zinc-700 bg-zinc-900/80 px-3 py-1 text-zinc-400">
-            Banco {bank.shortLabel}
-          </span>
-        </p>
-      </div>
 
-      {loadError && <p className="text-sm text-red-400">{loadError}</p>}
+          {loadError && <p className="max-w-xl text-sm text-red-400">{loadError}</p>}
 
-      {midi && !playing && !loadError && (
-        <div className="flex max-w-lg flex-col items-center gap-3">
-          <button
-            type="button"
-            disabled={loadingSf}
-            onPointerDown={() => {
-              primeAudioFromUserGesture();
-            }}
-            onClick={() => void startPlayback()}
-            className="rounded-xl bg-fuchsia-600 px-8 py-4 text-lg font-semibold text-white shadow-lg shadow-fuchsia-900/40 hover:bg-fuchsia-500 disabled:opacity-50"
-          >
-            {loadingSf
-              ? sfProgress
-                ? `Carico strumenti… ${sfProgress.done}/${sfProgress.total}`
-                : "Carico strumenti…"
-              : "Avvia karaoke"}
-          </button>
-          <p className="text-center text-xs text-zinc-500">
-            Il browser richiede un tap su questo pulsante per l&apos;audio. Dopo un ricaricamento della pagina
-            premi di nuovo &quot;Avvia karaoke&quot; (lo stato in sala si ripristina, l&apos;audio no).
+          {midi && !loadError && (
+            <button
+              type="button"
+              disabled={loadingSf}
+              onClick={() => void startPlayback()}
+              className="rounded-xl bg-fuchsia-600 px-8 py-4 text-lg font-semibold text-white shadow-lg shadow-fuchsia-900/40 hover:bg-fuchsia-500 disabled:opacity-50"
+            >
+              {loadingSf
+                ? sfProgress
+                  ? `Carico strumenti… ${sfProgress.done}/${sfProgress.total}`
+                  : "Carico strumenti…"
+                : "▶ Avvia karaoke"}
+            </button>
+          )}
+          {!midi && !loadError && <p className="text-sm text-zinc-500">Carico il brano…</p>}
+          <p className="text-xs text-zinc-400">
+            Il browser richiede un tap su questo pulsante per avviare l&apos;audio.
           </p>
         </div>
       )}
-
-      <LyricsPanel
-        lines={effectiveLines}
-        index={idx}
-        title={title}
-        noLyricsHint='Nessun testo trovato: né incorporato nel file MIDI né in un .lrc caricato dall&apos;admin. Sentirai solo la base strumentale dopo "Avvia karaoke".'
-      />
     </div>
   );
 }

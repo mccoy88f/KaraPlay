@@ -35,7 +35,8 @@ export function MidiPreviewButton({ songId }: { songId: string }) {
     stopCurrent?.();
     setStatus("loading");
     try {
-      if (!sharedCtx) sharedCtx = new AudioContext();
+      // latencyHint playback: buffer più ampio, meno scatti/gracchiate su telefoni lenti
+      if (!sharedCtx) sharedCtx = new AudioContext({ latencyHint: "playback" });
       const ac = sharedCtx;
       await ac.resume();
 
@@ -74,26 +75,46 @@ export function MidiPreviewButton({ songId }: { songId: string }) {
 
       const t0 = ac.currentTime + 0.15;
       const firstNote = Math.min(...tracks.flatMap((t) => (t.notes[0] ? [t.notes[0].time] : [])));
+      // finestra scorrevole: troppe note programmate insieme saturano il thread audio (gracchiare)
+      type Ev = { rel: number; name: string; duration: number; gain: number; inst: ReturnType<typeof players.get> };
+      const events: Ev[] = [];
       for (const track of tracks) {
         const inst = players.get(gleitzNameForPatch(track.instrument.number))!;
         for (const note of track.notes) {
-          // si parte dalla prima nota, non dall'eventuale silenzio iniziale
           const rel = note.time - firstNote;
           if (rel < 0 || rel > PREVIEW_SECONDS) continue;
+          events.push({
+            rel,
+            name: note.name,
+            duration: Math.max(0.02, note.duration),
+            gain: Math.max(0.05, note.velocity ?? 0.7),
+            inst,
+          });
+        }
+      }
+      events.sort((a, b) => a.rel - b.rel);
+      let cursor = 0;
+      const pump = () => {
+        const horizon = ac.currentTime - t0 + 6;
+        while (cursor < events.length && events[cursor].rel <= horizon) {
+          const ev = events[cursor++];
           try {
-            inst.play(note.name, t0 + rel, {
-              duration: Math.max(0.02, note.duration),
-              gain: Math.max(0.05, note.velocity ?? 0.7),
+            ev.inst!.play(ev.name, Math.max(t0 + ev.rel, ac.currentTime + 0.02), {
+              duration: ev.duration,
+              gain: ev.gain,
             });
           } catch {
             /* nota fuori range: si continua */
           }
         }
-      }
+      };
+      pump();
+      const pumpTimer = window.setInterval(pump, 1500);
 
       const timer = window.setTimeout(() => stop(), PREVIEW_SECONDS * 1000);
       const doStop = () => {
         window.clearTimeout(timer);
+        window.clearInterval(pumpTimer);
         for (const p of players.values()) {
           try {
             p.stop?.();

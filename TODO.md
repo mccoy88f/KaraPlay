@@ -59,9 +59,13 @@ le voci `[ ]` restano da fare per arrivare a un progetto completo e funzionante 
   visibile ("Carico strumenti… 3/11"), errori di scheduling mostrati a schermo invece
   di interrompere in silenzio (prima un'eccezione su una nota lasciava il pulsante
   "Avvia" senza alcun feedback), note problematiche saltate senza fermare il brano.
-- [ ] Migliorare il player Gleitz di fallback: oggi le percussioni (canale 10) usano un
-  `Tone.PolySynth` generico che suona note intonate: o scaricare un drum kit dedicato o
-  deprecare i banchi Gleitz quando un SF2 è disponibile.
+- [x] **Player Gleitz riscritto e verificato in browser reale** (Chrome headless E2E sul
+  file .kar di test): la causa del "non parte niente" era la programmazione upfront di
+  tutte le note (~2 nodi audio per nota → decine di migliaia → thread audio al collasso,
+  clock quasi fermo; in anteprima si manifestava come gracchiare). Ora la programmazione
+  è a **finestra scorrevole** (~8s di note alla volta), Tone.js è stato rimosso
+  (AudioContext puro, latencyHint playback) e l'estetica è la stessa card "palco" dei
+  video. Limite: i banchi Gleitz non hanno percussioni (col banco SF2 ci sono).
 - [ ] Pre-caricamento del banco SF2 sul display prima dell'avvio dell'esibizione (oggi il download
   parte al primo "Avvia karaoke"; con SF2 grandi conviene il prefetch all'apertura della pagina).
 - [ ] Pausa / seek durante l'esibizione (il Sequencer di spessasynth supporta `currentTime` e `pause()`).

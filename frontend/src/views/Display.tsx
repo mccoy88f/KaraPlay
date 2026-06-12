@@ -485,11 +485,10 @@ export function Display() {
                   ({voteCount} {voteCount === 1 ? "voto" : "voti"})
                 </span>
               </p>
-              {live.song?.source !== "MIDI" && (
-                <p className="max-w-xl truncate text-sm text-zinc-500">
-                  {live.booking?.ytTitle ?? live.song?.title ?? ""}
-                </p>
-              )}
+              <p className="max-w-xl truncate text-sm text-zinc-500">
+                {live.song?.title ?? live.booking?.ytTitle ?? ""}
+                {live.song?.source === "MIDI" && live.song.artist ? ` — ${live.song.artist}` : ""}
+              </p>
             </div>
             {live.song?.source === "MIDI" && live.song.midiPath ? (
               <KaraokePlayer

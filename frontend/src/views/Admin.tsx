@@ -227,14 +227,6 @@ export function Admin() {
                 🔧 Tecnico
               </button>
             )}
-            <button
-              type="button"
-              onClick={logout}
-              title="Esci"
-              className="rounded-lg px-3 py-2 text-zinc-600 hover:text-red-300"
-            >
-              ⎋
-            </button>
           </nav>
         </header>
 
@@ -257,14 +249,23 @@ export function Admin() {
           )}
         </main>
 
-        <footer className="mt-10 border-t border-zinc-800/80 pt-6 text-sm text-zinc-600">
-          <Link to="/join" className="hover:text-zinc-400">
-            Area pubblico
-          </Link>
-          <span className="mx-3 text-zinc-800">·</span>
-          <Link to="/display" className="hover:text-zinc-400">
-            Schermo sala
-          </Link>
+        <footer className="mt-10 flex flex-wrap items-center justify-between gap-3 border-t border-zinc-800/80 pt-6 text-sm text-zinc-600">
+          <div>
+            <Link to="/join" className="hover:text-zinc-400">
+              Area pubblico
+            </Link>
+            <span className="mx-3 text-zinc-800">·</span>
+            <Link to="/display" className="hover:text-zinc-400">
+              Schermo sala
+            </Link>
+          </div>
+          <button
+            type="button"
+            onClick={logout}
+            className="rounded-lg border border-zinc-700 px-3 py-1.5 text-zinc-400 hover:border-red-500/50 hover:text-red-300"
+          >
+            Esci ({me.username})
+          </button>
         </footer>
       </div>
     </div>
