@@ -1,4 +1,5 @@
-import { startTransition, useCallback, useEffect, useState } from "react";
+import { startTransition, useCallback, useEffect, useRef, useState } from "react";
+import { extractMidiMeta } from "../../lib/midiMeta";
 
 const base = import.meta.env.VITE_API_URL ?? "";
 
@@ -26,6 +27,36 @@ export function MidiCatalogSection({ authHeader }: Props) {
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  /** Ultimi valori precompilati dal file: si sovrascrivono solo se l'utente non li ha toccati. */
+  const autoFillRef = useRef<{ title: string; artist: string }>({ title: "", artist: "" });
+
+  /** Alla scelta del file, titolo e artista si leggono dai metadati MIDI/.kar (modificabili). */
+  async function onMidiPicked(f: File | null) {
+    setMidiFile(f);
+    if (!f) return;
+    try {
+      const meta = extractMidiMeta(await f.arrayBuffer(), f.name);
+      setTitle((cur) => {
+        if (meta.title && (cur.trim() === "" || cur === autoFillRef.current.title)) {
+          autoFillRef.current.title = meta.title;
+          return meta.title;
+        }
+        return cur;
+      });
+      setArtist((cur) => {
+        if (meta.artist && (cur.trim() === "" || cur === autoFillRef.current.artist)) {
+          autoFillRef.current.artist = meta.artist;
+          return meta.artist;
+        }
+        return cur;
+      });
+      if (meta.title || meta.artist) {
+        setMsg("Titolo e artista letti dal file: controllali e correggi se serve.");
+      }
+    } catch {
+      /* file illeggibile: i campi restano come sono */
+    }
+  }
 
   const loadSongs = useCallback(async () => {
     const res = await fetch(`${base}/api/admin/songs`, { headers: { ...authHeader() } });
@@ -121,7 +152,7 @@ export function MidiCatalogSection({ authHeader }: Props) {
               type="file"
               accept=".mid,audio/midi"
               className="hidden"
-              onChange={(e) => setMidiFile(e.target.files?.[0] ?? null)}
+              onChange={(e) => void onMidiPicked(e.target.files?.[0] ?? null)}
             />
           </label>
           <label className="cursor-pointer rounded-lg border border-zinc-600 px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-800">
