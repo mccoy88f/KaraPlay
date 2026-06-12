@@ -482,7 +482,7 @@ export function Display() {
 
   return (
     <div className="kg-page-bg flex h-dvh flex-col overflow-hidden">
-      {/* l'header (PIN, banco, coda) serve in attesa: durante l'esibizione tutto lo schermo è palco */}
+      {/* l'header (PIN, coda) serve in attesa: durante l'esibizione tutto lo schermo è palco */}
       {!live && (
       <header className="flex flex-wrap items-center justify-between gap-4 border-b border-zinc-800/80 bg-zinc-950/40 px-4 py-4 backdrop-blur-md md:px-8">
         <div>
@@ -501,10 +501,6 @@ export function Display() {
               </p>
             </div>
           )}
-          <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 px-4 py-2 text-left">
-            <p className="text-[10px] uppercase tracking-wider text-zinc-500">Banco GM (admin)</p>
-            <p className="font-display text-sm font-medium text-zinc-200">{getSoundfontBank(sfBank).shortLabel}</p>
-          </div>
           <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 px-4 py-2 text-right">
             <p className="text-[10px] uppercase tracking-wider text-zinc-500">In coda</p>
             <p className="font-display text-2xl font-semibold tabular-nums text-cyan-300">{queueLen}</p>
