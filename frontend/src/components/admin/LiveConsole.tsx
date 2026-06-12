@@ -56,6 +56,33 @@ function midiControlSelectClass(active: boolean) {
     : "rounded-lg border border-zinc-700 bg-zinc-950 px-2 py-2 text-xs text-zinc-400 outline-none";
 }
 
+function TransposeLiveControl({
+  transpose,
+  onTranspose,
+  title,
+  className = "",
+}: {
+  transpose: number;
+  onTranspose: (semitones: number) => void;
+  title: string;
+  className?: string;
+}) {
+  return (
+    <select
+      title={title}
+      value={transpose}
+      onChange={(e) => onTranspose(Number(e.target.value))}
+      className={`${midiControlSelectClass(transpose !== 0)} ${className}`.trim()}
+    >
+      {Array.from({ length: 25 }, (_, i) => i - 12).map((n) => (
+        <option key={n} value={n}>
+          {n === 0 ? "🎵 tono orig." : n > 0 ? `🎵 +${n} st` : `🎵 ${n} st`}
+        </option>
+      ))}
+    </select>
+  );
+}
+
 function MidiLiveControls({
   song,
   onMute,
@@ -87,18 +114,11 @@ function MidiLiveControls({
           </option>
         ))}
       </select>
-      <select
+      <TransposeLiveControl
+        transpose={transpose}
+        onTranspose={onTranspose}
         title={transposeTitle}
-        value={transpose}
-        onChange={(e) => onTranspose(Number(e.target.value))}
-        className={midiControlSelectClass(transpose !== 0)}
-      >
-        {Array.from({ length: 25 }, (_, i) => i - 12).map((n) => (
-          <option key={n} value={n}>
-            {n === 0 ? "🎵 tono orig." : n > 0 ? `🎵 +${n} st` : `🎵 ${n} st`}
-          </option>
-        ))}
-      </select>
+      />
     </div>
   );
 }
@@ -601,6 +621,13 @@ export function LiveConsole({ authHeader, isSuper }: Props) {
                       onTranspose={(semitones) => void setTransposeSemitones(performing.song!.id, semitones)}
                     />
                   )}
+                  {performing.song?.source === "YOUTUBE" && (
+                    <TransposeLiveControl
+                      transpose={performing.song.transposeSemitones ?? 0}
+                      title="Trasposizione in semitoni sul video: ha effetto subito sul display"
+                      onTranspose={(semitones) => void setTransposeSemitones(performing.song!.id, semitones)}
+                    />
+                  )}
                   <p className="rounded-full border border-amber-500/40 bg-amber-500/10 px-4 py-2 text-amber-200">
                     ★ <span className="font-display text-xl font-semibold">{voteAvg != null ? voteAvg.toFixed(1) : "—"}</span>
                     <span className="ml-2 text-xs text-amber-200/70">{voteCount} voti</span>
@@ -754,6 +781,14 @@ export function LiveConsole({ authHeader, isSuper }: Props) {
                         muteTitle="Silenzia la traccia della voce guida (di solito la 4)"
                         transposeTitle="Trasposizione in semitoni per tutte le esecuzioni del brano"
                         onMute={(track) => void setMutedTrack(b.song!.id, track)}
+                        onTranspose={(semitones) => void setTransposeSemitones(b.song!.id, semitones)}
+                      />
+                    )}
+                    {b.song?.source === "YOUTUBE" && (
+                      <TransposeLiveControl
+                        className="shrink-0"
+                        transpose={b.song.transposeSemitones ?? 0}
+                        title="Trasposizione in semitoni per tutte le esecuzioni del video"
                         onTranspose={(semitones) => void setTransposeSemitones(b.song!.id, semitones)}
                       />
                     )}

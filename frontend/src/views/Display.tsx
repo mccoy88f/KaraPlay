@@ -526,6 +526,7 @@ export function Display() {
                 key={live.performance.id}
                 bookingId={live.booking.id}
                 title={live.song.title}
+                transposeSemitones={live.song.transposeSemitones ?? 0}
                 onEnded={() => void autoEnd()}
               />
             ) : live.booking?.ytUrl ? (

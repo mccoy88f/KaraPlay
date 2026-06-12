@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="it">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Demo pitch shift — Tone.js vs SoundTouchJS</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: system-ui, -apple-system, Segoe UI, sans-serif;
+        background: #0a0a0b;
+        color: #e4e4e7;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-height: 100dvh;
+        padding: 1.5rem;
+      }
+      main {
+        max-width: 52rem;
+        margin: 0 auto;
+      }
+      h1 {
+        font-size: 1.5rem;
+        font-weight: 650;
+        margin: 0 0 0.35rem;
+      }
+      .sub {
+        color: #a1a1aa;
+        font-size: 0.95rem;
+        line-height: 1.5;
+        margin-bottom: 1.5rem;
+      }
+      .card {
+        border: 1px solid #3f3f46;
+        border-radius: 1rem;
+        background: #111113;
+        padding: 1.25rem;
+        margin-bottom: 1rem;
+      }
+      label {
+        display: block;
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: #a1a1aa;
+        margin-bottom: 0.4rem;
+      }
+      input[type="file"],
+      select,
+      button {
+        font: inherit;
+      }
+      input[type="range"] {
+        width: 100%;
+        accent-color: #e11d48;
+      }
+      select {
+        width: 100%;
+        padding: 0.65rem 0.75rem;
+        border-radius: 0.6rem;
+        border: 1px solid #52525b;
+        background: #09090b;
+        color: inherit;
+      }
+      .row {
+        display: grid;
+        gap: 1rem;
+        margin-top: 1rem;
+      }
+      @media (min-width: 640px) {
+        .row.two {
+          grid-template-columns: 1fr 1fr;
+        }
+      }
+      .btns {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        margin-top: 1rem;
+      }
+      button {
+        border: 1px solid #52525b;
+        background: #18181b;
+        color: #fafafa;
+        border-radius: 0.6rem;
+        padding: 0.55rem 1rem;
+        cursor: pointer;
+      }
+      button.primary {
+        background: #be123c;
+        border-color: #be123c;
+      }
+      button:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+      }
+      .mono {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 0.9rem;
+      }
+      .pill {
+        display: inline-block;
+        border-radius: 999px;
+        padding: 0.15rem 0.55rem;
+        font-size: 0.75rem;
+        border: 1px solid #52525b;
+        color: #d4d4d8;
+      }
+      .pill.tone {
+        border-color: #6366f1;
+        color: #c7d2fe;
+      }
+      .pill.st {
+        border-color: #059669;
+        color: #a7f3d0;
+      }
+      ul.compare {
+        margin: 0.5rem 0 0;
+        padding-left: 1.1rem;
+        color: #d4d4d8;
+        line-height: 1.55;
+      }
+      .status {
+        margin-top: 0.75rem;
+        min-height: 1.25rem;
+        font-size: 0.9rem;
+        color: #fbbf24;
+      }
+      .warn {
+        color: #fca5a5;
+        font-size: 0.85rem;
+        margin-top: 0.75rem;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Confronto pitch shift su MP3</h1>
+      <p class="sub">
+        Carica un file audio (MP3, M4A, WAV…) e confronta
+        <span class="pill tone">Tone.js PitchShift</span> (MIT) con
+        <span class="pill st">SoundTouchJS</span> (MPL-2.0). Stesso numero di semitoni, stesso file: ascolta artefatti,
+        chiarezza della voce e stabilità del tempo.
+      </p>
+
+      <section class="card">
+        <label for="file">File audio</label>
+        <input id="file" type="file" accept="audio/*,.mp3,.m4a,.wav,.ogg,.webm" />
+
+        <div class="row two">
+          <div>
+            <label for="engine">Motore</label>
+            <select id="engine">
+              <option value="tone">Tone.js — PitchShift</option>
+              <option value="soundtouch">SoundTouchJS — AudioWorklet</option>
+              <option value="dry">Nessuno (audio originale)</option>
+            </select>
+          </div>
+          <div>
+            <label for="semitones">Trasposizione: <span id="semiLabel" class="mono">0 st</span></label>
+            <input id="semitones" type="range" min="-12" max="12" step="1" value="0" />
+          </div>
+        </div>
+
+        <div class="btns">
+          <button id="play" class="primary" type="button" disabled>▶ Play</button>
+          <button id="pause" type="button" disabled>⏸ Pausa</button>
+          <button id="stop" type="button" disabled>⏹ Stop</button>
+        </div>
+        <p id="status" class="status"></p>
+        <p class="warn">Cambia motore o semitoni: la riproduzione si ferma e va riavviata.</p>
+      </section>
+
+      <section class="card">
+        <strong>Quale è “migliore”?</strong>
+        <ul class="compare">
+          <li>
+            <strong>SoundTouchJS</strong> — in genere migliore per karaoke/video: algoritmo time-stretch dedicato,
+            pitch e tempo indipendenti, meno “metallico” su ±3–6 semitoni. Integrazione più complessa (AudioWorklet).
+          </li>
+          <li>
+            <strong>Tone.js PitchShift</strong> — più semplice (MIT, già nel mondo Web Audio), ottimo per prototipi;
+            su shift ampi può introdurre tremolio/artefatti perché usa delay modulato.
+          </li>
+          <li>
+            Per KaraPlay su <em>video scaricati</em>, SoundTouchJS è la scelta più probabile se la qualità conta; Tone.js
+            se vuoi dipendenza minima e licenza MIT senza file MPL.
+          </li>
+        </ul>
+      </section>
+    </main>
+    <script type="module" src="/src/pitch-demo.ts"></script>
+  </body>
+</html>

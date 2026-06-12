@@ -219,8 +219,8 @@ export async function registerSongRoutes(fastify: FastifyInstance): Promise<void
       if (!song) {
         return reply.code(404).send({ error: "Canzone non trovata" });
       }
-      if (song.source !== "MIDI") {
-        return reply.code(400).send({ error: "Solo i brani MIDI hanno tonalità regolabile" });
+      if (song.source !== "MIDI" && song.source !== "YOUTUBE") {
+        return reply.code(400).send({ error: "Solo brani MIDI e video scaricati hanno tonalità regolabile" });
       }
       if (jwt.role !== "superadmin" && song.adminId !== jwt.sub) {
         return reply.code(403).send({ error: "Questo brano è di un altro admin" });
