@@ -59,9 +59,11 @@ type Props = {
   remoteMidiUrl?: string | null;
   /** Fine naturale del brano: il display la usa per chiudere l'esibizione da solo. */
   onEnded?: () => void;
+  /** Traccia MIDI da silenziare (1-based): la voce guida, di solito la 4. */
+  mutedTrack?: number | null;
 };
 
-export function KaraokePlayer({ songId, title, artist, lrcPath, soundfontBankId, remoteMidiUrl, onEnded }: Props) {
+export function KaraokePlayer({ songId, title, artist, lrcPath, soundfontBankId, remoteMidiUrl, onEnded, mutedTrack }: Props) {
   const bankId = soundfontBankId ?? getSoundfontBank(null).id;
   const bank = getSoundfontBank(bankId);
 
@@ -157,7 +159,21 @@ export function KaraokePlayer({ songId, title, artist, lrcPath, soundfontBankId,
       // skipToFirstNoteOn falso: il tempo deve restare allineato ai timestamp LRC.
       const seq = new Sequencer(synth, { skipToFirstNoteOn: false });
       seq.loopCount = 0;
-      seq.loadNewSongList([{ binary: midiBuf.slice(0), fileName: `${title}.mid` }]);
+      let playBuf = midiBuf.slice(0);
+      if (mutedTrack != null) {
+        // voce guida: si toglie la traccia rigenerando il file, il sequencer suona il resto
+        try {
+          const m = new Midi(midiBuf);
+          const t = m.tracks[mutedTrack - 1];
+          if (t) {
+            t.notes = [];
+            playBuf = m.toArray().buffer as ArrayBuffer;
+          }
+        } catch {
+          /* file anomalo: si suona tutto */
+        }
+      }
+      seq.loadNewSongList([{ binary: playBuf, fileName: `${title}.mid` }]);
       seq.eventHandler.addEvent("songEnded", "karaoke-player-end", () => {
         setPlaying(false);
         setTransportSec(0);
@@ -187,7 +203,7 @@ export function KaraokePlayer({ songId, title, artist, lrcPath, soundfontBankId,
       setLoadError(e instanceof Error ? e.message : "Errore caricamento SoundFont");
       void ac.close().catch(() => {});
     }
-  }, [midi, bank.sf2File, title, onEnded]);
+  }, [midi, bank.sf2File, title, onEnded, mutedTrack]);
 
   const startGleitzPlayback = useCallback(async () => {
     if (!midi) return;
@@ -213,8 +229,9 @@ export function KaraokePlayer({ songId, title, artist, lrcPath, soundfontBankId,
 
     const players = new Map<string, Awaited<ReturnType<typeof Soundfont.instrument>>>();
 
-    const melodicTracks = midi.tracks.filter((t) => t.notes.length > 0 && t.channel !== 9);
-    const drumTracks = midi.tracks.filter((t) => t.notes.length > 0 && t.channel === 9);
+    const audibleTracks = midi.tracks.filter((_t, i) => i + 1 !== (mutedTrack ?? -1));
+    const melodicTracks = audibleTracks.filter((t) => t.notes.length > 0 && t.channel !== 9);
+    const drumTracks = audibleTracks.filter((t) => t.notes.length > 0 && t.channel === 9);
 
     const neededInstruments = [...new Set(melodicTracks.map((t) => gleitzNameForPatch(t.instrument.number)))];
 
@@ -327,7 +344,7 @@ export function KaraokePlayer({ songId, title, artist, lrcPath, soundfontBankId,
       drumSynth.dispose();
       setLoadError(e instanceof Error ? e.message : "Errore durante l'avvio del brano");
     }
-  }, [midi, bank.gleitzFolder, base, onEnded]);
+  }, [midi, bank.gleitzFolder, base, onEnded, mutedTrack]);
 
   const startPlayback = useCallback(async () => {
     try {

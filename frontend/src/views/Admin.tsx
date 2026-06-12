@@ -14,7 +14,7 @@ export function Admin() {
   const [token, setToken] = useState<string | null>(() => localStorage.getItem(ADMIN_TOKEN_KEY));
   const [me, setMe] = useState<AdminMe | null>(null);
   const [checking, setChecking] = useState(true);
-  const [tab, setTab] = useState<"console" | "account" | "tech">("console");
+  const [tab, setTab] = useState<"console" | "catalog" | "account" | "tech">("console");
 
   // login form
   const [username, setUsername] = useState("");
@@ -189,6 +189,19 @@ export function Admin() {
             <button
               type="button"
               role="tab"
+              aria-selected={tab === "catalog"}
+              onClick={() => setTab("catalog")}
+              className={
+                tab === "catalog"
+                  ? "rounded-lg bg-zinc-700 px-4 py-2 font-medium text-white"
+                  : "rounded-lg px-4 py-2 text-zinc-500 hover:text-white"
+              }
+            >
+              📚 Catalogo
+            </button>
+            <button
+              type="button"
+              role="tab"
               aria-selected={tab === "account"}
               onClick={() => setTab("account")}
               className={
@@ -228,16 +241,16 @@ export function Admin() {
         <main className="mt-6">
           {tab === "console" && <LiveConsole authHeader={authHeader} isSuper={isSuper} />}
 
+          {tab === "catalog" && <MidiCatalogSection authHeader={authHeader} />}
+
           {tab === "account" && <AccountSection me={me} authHeader={authHeader} />}
 
           {tab === "tech" && isSuper && (
             <div className="space-y-2">
               <p className="text-sm text-zinc-500">
-                Cose da fare una volta sola, prima della serata: caricare le basi MIDI nel catalogo condiviso.
-                Durante la serata resta su <strong className="text-zinc-300">Conduzione</strong>.
+                Strumenti del server (solo super admin). Durante la serata resta su{" "}
+                <strong className="text-zinc-300">Conduzione</strong>.
               </p>
-
-              <MidiCatalogSection authHeader={authHeader} />
 
               <MidiDebugSection authHeader={authHeader} />
             </div>

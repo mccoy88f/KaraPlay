@@ -28,11 +28,11 @@ export function MidiCatalogSection({ authHeader }: Props) {
   const [loading, setLoading] = useState(false);
 
   const loadSongs = useCallback(async () => {
-    const res = await fetch(`${base}/api/songs`);
+    const res = await fetch(`${base}/api/admin/songs`, { headers: { ...authHeader() } });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) return;
     setSongs((data as { songs: SongDto[] }).songs ?? []);
-  }, []);
+  }, [authHeader]);
 
   useEffect(() => {
     startTransition(() => {
@@ -77,10 +77,11 @@ export function MidiCatalogSection({ authHeader }: Props) {
 
   return (
     <section className="kg-card mt-8 p-6 md:p-8">
-      <h2 className="font-display text-lg font-semibold text-white">Catalogo MIDI karaoke</h2>
+      <h2 className="font-display text-lg font-semibold text-white">Il tuo catalogo MIDI karaoke</h2>
       <p className="mt-2 text-sm text-zinc-400">
-        Carica un file <code className="rounded bg-zinc-800 px-1">.mid</code> e opzionalmente un{" "}
-        <code className="rounded bg-zinc-800 px-1">.lrc</code> per il testo sincronizzato sul Display.
+        I brani che carichi qui sono visibili al pubblico di <strong className="text-zinc-300">tutte le tue
+        serate</strong> (e solo delle tue). File <code className="rounded bg-zinc-800 px-1">.mid</code> +
+        opzionale <code className="rounded bg-zinc-800 px-1">.lrc</code> per il testo sincronizzato.
       </p>
 
       <form onSubmit={(e) => void upload(e)} className="mt-6 flex flex-col gap-4">

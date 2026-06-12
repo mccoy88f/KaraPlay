@@ -80,8 +80,17 @@ le voci `[ ]` restano da fare per arrivare a un progetto completo e funzionante 
   il display riproduce il file dal server (`/api/media/yt/:bookingId`, con supporto Range
   per il seeking) **senza pubblicità**. Non si scarica più solo l'audio né si cercano
   testi su LRCLIB: il video karaoke contiene già tutto.
-- [ ] Ricerca nel catalogo MIDI lato server per cataloghi grandi (oggi il filtro è client-side;
-  l'endpoint `GET /api/songs?q=` esiste già).
+- [x] **Catalogo MIDI per-admin**: ogni brano appartiene all'admin che lo carica
+  (`Song.adminId`), è visibile al pubblico di tutte le sue serate
+  (`GET /api/events/:id/songs`) e non agli altri admin; gestione dal nuovo tab
+  «📚 Catalogo» (tutti gli admin), upload non più riservato al super admin.
+- [x] **Muta voce guida (ghost track)**: selettore in scaletta sui brani MIDI per
+  silenziare una traccia (di solito la 4) — `Song.mutedTrack`, applicato da entrambi
+  i motori del player (gleitz: traccia esclusa; SF2: MIDI rigenerato senza le note).
+- [x] **Pulizia automatica a fine serata**: con lo stato «Conclusa» i video YouTube
+  scaricati vengono eliminati (file mp4 + Song temporanee); nel catalogo restano
+  solo i MIDI. Prenotazioni e punteggi non si toccano.
+- [ ] Ricerca nel catalogo MIDI lato server per cataloghi grandi (oggi il filtro è client-side).
 - [ ] Metadati migliori per i risultati YouTube (durata talvolta assente con `--flat-playlist`).
 - [ ] Limite/risparmio chiamate: cache breve dei risultati di ricerca YouTube lato server.
 

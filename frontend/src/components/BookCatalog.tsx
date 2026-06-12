@@ -31,12 +31,13 @@ export function BookCatalog() {
   const [ytPreviewId, setYtPreviewId] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!event) return;
     let cancelled = false;
     void (async () => {
       setLoading(true);
       setErr(null);
       try {
-        const data = await apiSearchSongs();
+        const data = await apiSearchSongs(event.id);
         if (!cancelled) setSongs(data.songs);
       } catch (e) {
         if (!cancelled) {
@@ -50,7 +51,8 @@ export function BookCatalog() {
     return () => {
       cancelled = true;
     };
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [event?.id]);
 
   // il catalogo MIDI si filtra in tempo reale mentre si digita
   const midiMatches = useMemo(() => {

@@ -1,4 +1,4 @@
-import { access } from "node:fs/promises";
+import { access, unlink } from "node:fs/promises";
 import path from "node:path";
 import { prisma } from "../lib/prisma.js";
 import { ensureStorageLayout, getStorageRoot } from "../lib/storage.js";
@@ -89,6 +89,7 @@ async function runJob(bookingId: string) {
       data: {
         title,
         artist: meta.artist,
+        adminId: booking.event.adminId,
         source: "YOUTUBE",
         // Campo storico: per i brani YouTube contiene il percorso del video mp4.
         mp3Path: `yt/${bookingId}.mp4`,
@@ -124,4 +125,37 @@ async function runJob(bookingId: string) {
     getIo()?.to(`event:${eventId}`).emit("youtube:error", { bookingId, error: msg });
     await emitQueueUpdate(eventId);
   }
+}
+
+/**
+ * Fine serata: elimina i video YouTube scaricati (file mp4 + Song temporanee).
+ * Nel catalogo restano solo i brani MIDI; le prenotazioni e i punteggi non si toccano.
+ */
+export async function cleanupEventYoutube(eventId: string): Promise<{ files: number; songs: number }> {
+  const bookings = await prisma.booking.findMany({
+    where: { eventId, song: { source: "YOUTUBE" } },
+    select: { id: true, songId: true },
+  });
+  const songIds = [...new Set(bookings.map((b) => b.songId).filter((id): id is string => Boolean(id)))];
+
+  let files = 0;
+  for (const b of bookings) {
+    try {
+      await unlink(path.join(getStorageRoot(), "yt", `${b.id}.mp4`));
+      files += 1;
+    } catch {
+      /* mai scaricato o già rimosso */
+    }
+  }
+
+  if (songIds.length > 0) {
+    // prima si scollegano le prenotazioni (FK), poi si eliminano le Song temporanee
+    await prisma.booking.updateMany({
+      where: { songId: { in: songIds } },
+      data: { songId: null },
+    });
+    await prisma.song.deleteMany({ where: { id: { in: songIds }, source: "YOUTUBE" } });
+  }
+
+  return { files, songs: songIds.length };
 }

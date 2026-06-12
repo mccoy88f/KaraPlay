@@ -8,22 +8,60 @@ import { prisma } from "../lib/prisma.js";
 /** @tonejs/midi è CJS: in ESM serve require per evitare crash in Node. */
 const require = createRequire(import.meta.url);
 const { Midi } = require("@tonejs/midi") as { Midi: new (data: ArrayBuffer) => { duration: number } };
-import { requireSuperAdmin } from "../middleware/admin.js";
+import { requireAdmin } from "../middleware/admin.js";
 import { ensureStorageLayout, getStorageRoot } from "../lib/storage.js";
+import type { JwtPayload } from "../types/jwt.js";
 
 export async function registerSongRoutes(fastify: FastifyInstance): Promise<void> {
-  fastify.get<{ Querystring: { q?: string } }>("/songs", async (request, reply) => {
-    const q = request.query.q?.trim();
+  /** Catalogo visto dal pubblico di una serata: i brani MIDI dell'admin che la gestisce. */
+  fastify.get<{ Params: { eventId: string }; Querystring: { q?: string } }>(
+    "/events/:eventId/songs",
+    async (request, reply) => {
+      const event = await prisma.event.findUnique({
+        where: { id: request.params.eventId },
+        select: { adminId: true },
+      });
+      if (!event) {
+        return reply.code(404).send({ error: "Serata non trovata" });
+      }
+      const q = request.query.q?.trim();
+      const songs = await prisma.song.findMany({
+        where: {
+          source: "MIDI",
+          // i brani senza proprietario (legacy) restano visibili a tutte le serate
+          OR: event.adminId ? [{ adminId: event.adminId }, { adminId: null }] : [{ adminId: null }],
+          ...(q
+            ? {
+                AND: [
+                  {
+                    OR: [
+                      { title: { contains: q, mode: "insensitive" } },
+                      { artist: { contains: q, mode: "insensitive" } },
+                    ],
+                  },
+                ],
+              }
+            : {}),
+        },
+        take: 100,
+        orderBy: [{ artist: "asc" }, { title: "asc" }],
+      });
+      return reply.send({ songs });
+    }
+  );
+
+  /** Catalogo personale dell'admin loggato (il super admin vede anche i legacy senza proprietario). */
+  fastify.get("/admin/songs", { preHandler: [requireAdmin] }, async (request, reply) => {
+    const jwt = request.user as JwtPayload;
     const songs = await prisma.song.findMany({
-      where: q
-        ? {
-            OR: [
-              { title: { contains: q, mode: "insensitive" } },
-              { artist: { contains: q, mode: "insensitive" } },
-            ],
-          }
-        : undefined,
-      take: 50,
+      where: {
+        source: "MIDI",
+        OR:
+          jwt.role === "superadmin"
+            ? [{ adminId: jwt.sub }, { adminId: null }]
+            : [{ adminId: jwt.sub }],
+      },
+      take: 500,
       orderBy: [{ artist: "asc" }, { title: "asc" }],
     });
     return reply.send({ songs });
@@ -39,6 +77,38 @@ export async function registerSongRoutes(fastify: FastifyInstance): Promise<void
     return reply.send(song);
   });
 
+  const mutedTrackSchema = z.object({
+    track: z.number().int().min(1).max(32).nullable(),
+  });
+
+  /** Silenzia una traccia del MIDI (voce guida): vale per tutte le esecuzioni del brano. */
+  fastify.put<{ Params: { id: string } }>(
+    "/admin/songs/:id/muted-track",
+    { preHandler: [requireAdmin] },
+    async (request, reply) => {
+      const parsed = mutedTrackSchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.code(400).send({ error: "Traccia non valida (1-32 o null)" });
+      }
+      const jwt = request.user as JwtPayload;
+      const song = await prisma.song.findUnique({ where: { id: request.params.id } });
+      if (!song) {
+        return reply.code(404).send({ error: "Canzone non trovata" });
+      }
+      if (song.source !== "MIDI") {
+        return reply.code(400).send({ error: "Solo i brani MIDI hanno tracce da silenziare" });
+      }
+      if (jwt.role !== "superadmin" && song.adminId !== jwt.sub) {
+        return reply.code(403).send({ error: "Questo brano è di un altro admin" });
+      }
+      const updated = await prisma.song.update({
+        where: { id: song.id },
+        data: { mutedTrack: parsed.data.track },
+      });
+      return reply.send(updated);
+    }
+  );
+
   const createSongSchema = z.object({
     title: z.string().min(1),
     artist: z.string().min(1),
@@ -51,7 +121,7 @@ export async function registerSongRoutes(fastify: FastifyInstance): Promise<void
 
   fastify.post(
     "/admin/songs",
-    { preHandler: [requireSuperAdmin] },
+    { preHandler: [requireAdmin] },
     async (request, reply) => {
       const parsed = createSongSchema.safeParse(request.body);
       if (!parsed.success) {
@@ -62,6 +132,7 @@ export async function registerSongRoutes(fastify: FastifyInstance): Promise<void
         data: {
           title: body.title,
           artist: body.artist,
+          adminId: (request.user as JwtPayload).sub,
           source: "MIDI",
           midiPath: body.midiPath ?? null,
           lrcPath: body.lrcPath ?? null,
@@ -76,7 +147,7 @@ export async function registerSongRoutes(fastify: FastifyInstance): Promise<void
 
   fastify.post(
     "/admin/songs/upload",
-    { preHandler: [requireSuperAdmin] },
+    { preHandler: [requireAdmin] },
     async (request, reply) => {
       let title = "";
       let artist = "";
@@ -114,6 +185,7 @@ export async function registerSongRoutes(fastify: FastifyInstance): Promise<void
         data: {
           title,
           artist,
+          adminId: (request.user as JwtPayload).sub,
           source: "MIDI",
           midiPath: null,
           lrcPath: null,

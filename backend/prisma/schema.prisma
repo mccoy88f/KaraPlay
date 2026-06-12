@@ -65,6 +65,7 @@ model AdminUser {
   createdAt    DateTime  @default(now())
 
   events Event[]
+  songs  Song[]
 }
 
 enum AdminRole {
@@ -91,7 +92,12 @@ model Song {
   language  String?
   tags      String[]
   createdAt DateTime   @default(now())
+  /** Proprietario del catalogo: visibile a tutte le sue serate, non agli altri admin. */
+  adminId   String?
+  /** Traccia MIDI da silenziare in riproduzione (voce guida, di solito la 4). 1-based. */
+  mutedTrack Int?
 
+  admin    AdminUser? @relation(fields: [adminId], references: [id])
   bookings Booking[]
 }
 

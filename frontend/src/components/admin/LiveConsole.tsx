@@ -26,7 +26,7 @@ type QueueBooking = {
   ytTitle: string | null;
   ytProcessError: string | null;
   user: { nickname: string };
-  song: { id: string; title: string; artist: string; source?: string } | null;
+  song: { id: string; title: string; artist: string; source?: string; mutedTrack?: number | null } | null;
   performance: { id: string; scoreTotal?: number | null } | null;
 };
 
@@ -254,6 +254,19 @@ export function LiveConsole({ authHeader, isSuper }: Props) {
   async function remove(b: QueueBooking) {
     if (!window.confirm(`Togliere «${bookingTitle(b)}» dalla scaletta?`)) return;
     await adminFetch(`/admin/bookings/${b.id}`, { method: "DELETE" });
+  }
+
+  /** Voce guida del MIDI (ghost track, di solito la traccia 4): on/off per tutte le esecuzioni. */
+  async function setMutedTrack(songId: string, track: number | null) {
+    setMsg(null);
+    const ok = await adminFetch(`/admin/songs/${songId}/muted-track`, {
+      method: "PUT",
+      body: JSON.stringify({ track }),
+    });
+    if (ok) {
+      setMsg(track == null ? "Voce guida riattivata." : `Traccia ${track} silenziata (voce guida).`);
+      if (eventId) await loadQueue(eventId);
+    }
   }
 
   /** Bis: rimette il brano in fondo alla scaletta. */
@@ -640,6 +653,27 @@ export function LiveConsole({ authHeader, isSuper }: Props) {
                       >
                         ▶ Sul palco
                       </button>
+                    )}
+                    {b.song?.source === "MIDI" && (
+                      <select
+                        title="Silenzia la traccia della voce guida (di solito la 4)"
+                        value={b.song.mutedTrack ?? ""}
+                        onChange={(e) =>
+                          void setMutedTrack(b.song!.id, e.target.value === "" ? null : Number(e.target.value))
+                        }
+                        className={
+                          b.song.mutedTrack != null
+                            ? "shrink-0 rounded-lg border border-amber-500/50 bg-amber-950/40 px-2 py-2 text-xs text-amber-200 outline-none"
+                            : "shrink-0 rounded-lg border border-zinc-700 bg-zinc-950 px-2 py-2 text-xs text-zinc-400 outline-none"
+                        }
+                      >
+                        <option value="">🎤 voce on</option>
+                        {Array.from({ length: 16 }, (_, i) => i + 1).map((n) => (
+                          <option key={n} value={n}>
+                            🔇 muta tr. {n}
+                          </option>
+                        ))}
+                      </select>
                     )}
                     {b.ytUrl && b.status === "APPROVED" && !b.song && (
                       <button

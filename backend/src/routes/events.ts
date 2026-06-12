@@ -5,6 +5,7 @@ import { canManageEvent, requireAdmin } from "../middleware/admin.js";
 import { isValidSoundfontBankId } from "../lib/soundfontBanks.js";
 import type { EventStatus } from "@prisma/client";
 import type { JwtPayload } from "../types/jwt.js";
+import { cleanupEventYoutube } from "../services/youtube-process.service.js";
 
 function randomJoinCode(): string {
   return String(Math.floor(100000 + Math.random() * 900000));
@@ -183,6 +184,15 @@ export async function registerEventRoutes(fastify: FastifyInstance): Promise<voi
         where: { id: request.params.id },
         data: { status },
       });
+      if (status === "ENDED") {
+        // i video YouTube scaricati sono usa-e-getta: a fine serata si liberano disco e catalogo
+        try {
+          const r = await cleanupEventYoutube(event.id);
+          return reply.send({ ...event, youtubeCleanup: r });
+        } catch (e) {
+          console.error("[cleanup-youtube]", e);
+        }
+      }
       return reply.send(event);
     }
   );

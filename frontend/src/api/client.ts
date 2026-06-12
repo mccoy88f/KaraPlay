@@ -90,6 +90,7 @@ export type LivePerformancePayload = {
     source: string;
     midiPath: string | null;
     lrcPath: string | null;
+    mutedTrack?: number | null;
   } | null;
   user: { nickname: string };
 };
@@ -111,10 +112,10 @@ export type SongDto = {
   duration: number | null;
 };
 
-export async function apiSearchSongs(q?: string): Promise<{ songs: SongDto[] }> {
+export async function apiSearchSongs(eventId: string, q?: string): Promise<{ songs: SongDto[] }> {
   const url = q?.trim()
-    ? `${base}/api/songs?q=${encodeURIComponent(q.trim())}`
-    : `${base}/api/songs`;
+    ? `${base}/api/events/${encodeURIComponent(eventId)}/songs?q=${encodeURIComponent(q.trim())}`
+    : `${base}/api/events/${encodeURIComponent(eventId)}/songs`;
   const res = await fetch(url);
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {

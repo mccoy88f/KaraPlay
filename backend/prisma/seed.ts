@@ -5,7 +5,7 @@ const prisma = new PrismaClient();
 
 async function main() {
   // Super admin di partenza: cambia la password al primo accesso da /admin → Account.
-  await prisma.adminUser.upsert({
+  const superAdmin = await prisma.adminUser.upsert({
     where: { username: "admin" },
     update: {},
     create: {
@@ -37,8 +37,11 @@ async function main() {
         status: "OPEN",
         joinCode: "000000",
         hostId: host.id,
+        adminId: superAdmin.id,
       },
     });
+  } else if (!existing.adminId) {
+    await prisma.event.update({ where: { id: existing.id }, data: { adminId: superAdmin.id } });
   }
 
   const demoSong = await prisma.song.findFirst({
@@ -53,8 +56,11 @@ async function main() {
         tags: ["demo"],
         duration: 180,
         language: "it",
+        adminId: superAdmin.id,
       },
     });
+  } else if (!demoSong.adminId) {
+    await prisma.song.update({ where: { id: demoSong.id }, data: { adminId: superAdmin.id } });
   }
 
   console.log("Seed completato: super admin (admin/admin), evento demo (PIN 000000), canzone demo MIDI");

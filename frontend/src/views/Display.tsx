@@ -25,6 +25,7 @@ type SongPayload = {
   source?: string;
   midiPath?: string | null;
   lrcPath?: string | null;
+  mutedTrack?: number | null;
 };
 
 type PerfPayload = {
@@ -497,6 +498,7 @@ export function Display() {
                 title={live.song.title}
                 artist={live.song.artist}
                 lrcPath={live.song.lrcPath}
+                mutedTrack={live.song.mutedTrack}
                 soundfontBankId={sfBank}
                 onEnded={() => void autoEnd()}
               />
