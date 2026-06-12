@@ -206,6 +206,8 @@ export async function registerSongRoutes(fastify: FastifyInstance): Promise<void
       let title = "";
       let artist = "";
       let language = "";
+      let year: number | null = null;
+      let fileName: string | null = null;
       let midiBuf: Buffer | null = null;
       let lrcBuf: Buffer | null = null;
 
@@ -214,6 +216,8 @@ export async function registerSongRoutes(fastify: FastifyInstance): Promise<void
         if (part.type === "file") {
           if (part.fieldname === "midi") {
             midiBuf = await part.toBuffer();
+            // nome file originale, con estensione, sempre conservato
+            fileName = path.basename(part.filename ?? "").trim() || null;
           } else if (part.fieldname === "lrc") {
             lrcBuf = await part.toBuffer();
           }
@@ -222,6 +226,10 @@ export async function registerSongRoutes(fastify: FastifyInstance): Promise<void
           if (part.fieldname === "title") title = v;
           if (part.fieldname === "artist") artist = v;
           if (part.fieldname === "language") language = v;
+          if (part.fieldname === "year") {
+            const n = Number.parseInt(v, 10);
+            year = Number.isInteger(n) && n >= 1900 && n <= 2100 ? n : null;
+          }
         }
       }
 
@@ -245,6 +253,8 @@ export async function registerSongRoutes(fastify: FastifyInstance): Promise<void
           lrcPath: null,
           duration: null,
           language: language || null,
+          year,
+          fileName,
           tags: ["upload"],
         },
       });

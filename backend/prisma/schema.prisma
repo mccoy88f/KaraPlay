@@ -98,6 +98,10 @@ model Song {
   mutedTrack Int?
   /** Trasposizione globale in semitoni (-12…+12). Vale per tutte le esecuzioni del brano. */
   transposeSemitones Int @default(0)
+  /** Nome del file originale caricato, con estensione (es. "Albachiara.kar"). */
+  fileName  String?
+  /** Anno del brano (di solito dal meta-evento copyright del MIDI). */
+  year      Int?
 
   admin    AdminUser? @relation(fields: [adminId], references: [id])
   bookings Booking[]

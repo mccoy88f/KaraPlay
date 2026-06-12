@@ -80,7 +80,7 @@ function looksLikeTitle(s: string): boolean {
   return s.length >= 2 && s.length <= 80 && !/^@/.test(s);
 }
 
-export type MidiMeta = { title: string; artist: string };
+export type MidiMeta = { title: string; artist: string; year: number | null };
 
 /**
  * Titolo e artista letti dal file MIDI/.kar, in ordine di affidabilità:
@@ -91,8 +91,18 @@ export type MidiMeta = { title: string; artist: string };
 export function extractMidiMeta(buf: ArrayBuffer, fileName?: string): MidiMeta {
   let title = "";
   let artist = "";
+  let year: number | null = null;
 
   const { texts, trackNames } = collectTextMeta(buf);
+
+  // anno: di solito nel meta-evento copyright, es. "(C) 2026 by M-LIVE Srl"
+  for (const t of texts) {
+    const m = /\b(19[5-9]\d|20\d{2})\b/.exec(t);
+    if (m) {
+      year = Number(m[1]);
+      break;
+    }
+  }
 
   // tag karaoke @T: il primo è il titolo, il secondo (se c'è) l'artista
   const tTags = texts.filter((t) => /^@T/i.test(t)).map((t) => clean(t.slice(2)));
@@ -149,5 +159,5 @@ export function extractMidiMeta(buf: ArrayBuffer, fileName?: string): MidiMeta {
     );
   }
 
-  return { title, artist };
+  return { title, artist, year };
 }

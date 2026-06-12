@@ -11,6 +11,8 @@ export type SongDto = {
   midiPath: string | null;
   lrcPath: string | null;
   duration: number | null;
+  fileName?: string | null;
+  year?: number | null;
 };
 
 type Props = {
@@ -22,13 +24,14 @@ export function MidiCatalogSection({ authHeader }: Props) {
   const [title, setTitle] = useState("");
   const [artist, setArtist] = useState("");
   const [language, setLanguage] = useState("");
+  const [year, setYear] = useState("");
   const [midiFile, setMidiFile] = useState<File | null>(null);
   const [lrcFile, setLrcFile] = useState<File | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   /** Ultimi valori precompilati dal file: si sovrascrivono solo se l'utente non li ha toccati. */
-  const autoFillRef = useRef<{ title: string; artist: string }>({ title: "", artist: "" });
+  const autoFillRef = useRef<{ title: string; artist: string; year: string }>({ title: "", artist: "", year: "" });
 
   /** Alla scelta del file, titolo e artista si leggono dai metadati MIDI/.kar (modificabili). */
   async function onMidiPicked(f: File | null) {
@@ -47,6 +50,14 @@ export function MidiCatalogSection({ authHeader }: Props) {
         if (meta.artist && (cur.trim() === "" || cur === autoFillRef.current.artist)) {
           autoFillRef.current.artist = meta.artist;
           return meta.artist;
+        }
+        return cur;
+      });
+      setYear((cur) => {
+        const y = meta.year != null ? String(meta.year) : "";
+        if (y && (cur.trim() === "" || cur === autoFillRef.current.year)) {
+          autoFillRef.current.year = y;
+          return y;
         }
         return cur;
       });
@@ -84,6 +95,7 @@ export function MidiCatalogSection({ authHeader }: Props) {
     body.append("title", title.trim());
     body.append("artist", artist.trim());
     if (language.trim()) body.append("language", language.trim());
+    if (year.trim()) body.append("year", year.trim());
     body.append("midi", midiFile);
     if (lrcFile) body.append("lrc", lrcFile);
     const res = await fetch(`${base}/api/admin/songs/upload`, {
@@ -101,6 +113,8 @@ export function MidiCatalogSection({ authHeader }: Props) {
     setTitle("");
     setArtist("");
     setLanguage("");
+    setYear("");
+    autoFillRef.current = { title: "", artist: "", year: "" };
     setMidiFile(null);
     setLrcFile(null);
     await loadSongs();
@@ -136,15 +150,28 @@ export function MidiCatalogSection({ authHeader }: Props) {
             />
           </label>
         </div>
-        <label className="flex flex-col gap-1 text-sm">
-          <span className="text-zinc-400">Lingua (opzionale)</span>
-          <input
-            className="kg-input"
-            value={language}
-            onChange={(e) => setLanguage(e.target.value)}
-            placeholder="it"
-          />
-        </label>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="text-zinc-400">Lingua (opzionale)</span>
+            <input
+              className="kg-input"
+              value={language}
+              onChange={(e) => setLanguage(e.target.value)}
+              placeholder="it"
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="text-zinc-400">Anno (opzionale, letto dal file se presente)</span>
+            <input
+              className="kg-input"
+              value={year}
+              onChange={(e) => setYear(e.target.value)}
+              placeholder="es. 2024"
+              inputMode="numeric"
+              maxLength={4}
+            />
+          </label>
+        </div>
         <div className="flex flex-wrap gap-4">
           <label className="cursor-pointer rounded-lg border border-cyan-500/40 bg-cyan-500/10 px-4 py-2 text-sm font-medium text-cyan-100 hover:bg-cyan-500/20">
             File MIDI (.mid)
@@ -186,7 +213,8 @@ export function MidiCatalogSection({ authHeader }: Props) {
             <tr className="border-b border-zinc-800 text-zinc-500">
               <th className="py-2 pr-4">Titolo</th>
               <th className="py-2 pr-4">Artista</th>
-              <th className="py-2 pr-4">MIDI</th>
+              <th className="py-2 pr-4">Anno</th>
+              <th className="py-2 pr-4">File</th>
               <th className="py-2">LRC</th>
             </tr>
           </thead>
@@ -195,13 +223,16 @@ export function MidiCatalogSection({ authHeader }: Props) {
               <tr key={s.id} className="border-b border-zinc-800/80">
                 <td className="py-2 pr-4 font-medium text-white">{s.title}</td>
                 <td className="py-2 pr-4">{s.artist}</td>
-                <td className="py-2 pr-4">{s.midiPath ? "sì" : "—"}</td>
+                <td className="py-2 pr-4">{s.year ?? "—"}</td>
+                <td className="max-w-[14rem] truncate py-2 pr-4 font-mono text-xs text-zinc-500" title={s.fileName ?? undefined}>
+                  {s.fileName ?? "—"}
+                </td>
                 <td className="py-2">{s.lrcPath ? "sì" : "—"}</td>
               </tr>
             ))}
             {songs.length === 0 && (
               <tr>
-                <td colSpan={4} className="py-6 text-center text-zinc-500">
+                <td colSpan={5} className="py-6 text-center text-zinc-500">
                   Nessuna canzone in catalogo
                 </td>
               </tr>
