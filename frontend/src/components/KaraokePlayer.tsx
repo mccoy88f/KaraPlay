@@ -33,14 +33,24 @@ function fetchSf2(file: string): Promise<ArrayBuffer> {
   return p;
 }
 
+/**
+ * Trasposizione live in SF2 via RPN Coarse Tuning (MIDI standard: CC101=0, CC100=2, CC6=64±n).
+ * Vale per le note successive su tutti i canali melodici; il canale batteria (10) non si traspone.
+ */
 function applySf2Transpose(synth: WorkletSynthesizer, semitones: number) {
-  try {
-    (synth as WorkletSynthesizer & { setMasterParameter?: (name: string, value: number) => void }).setMasterParameter?.(
-      "transpose",
-      semitones
-    );
-  } catch {
-    /* synth senza parametro master transpose */
+  const cc = synth.controllerChange.bind(synth) as (ch: number, controller: number, value: number) => void;
+  const v = Math.max(0, Math.min(127, 64 + Math.round(semitones)));
+  for (let ch = 0; ch < 16; ch++) {
+    if (ch === 9) continue;
+    try {
+      cc(ch, 101, 0); // RPN MSB
+      cc(ch, 100, 2); // RPN LSB → coarse tuning
+      cc(ch, 6, v); // data entry: 64 = 0 semitoni
+      cc(ch, 101, 127); // RPN null (evita che altri CC6 del file la tocchino)
+      cc(ch, 100, 127);
+    } catch {
+      /* canale non disponibile */
+    }
   }
 }
 
@@ -117,6 +127,8 @@ export function KaraokePlayer({
   const transposeRef = useRef<number>(transposeSemitones);
   /** Per il mute live in SF2: synth e canale di ogni traccia. */
   const sf2LiveRef = useRef<{ synth: WorkletSynthesizer; channelOfTrack: number[] } | null>(null);
+  /** Per il mute live in Gleitz: un GainNode per traccia (azzeramento immediato sul synth). */
+  const gleitzLiveRef = useRef<{ ctx: AudioContext; gainOfTrack: Map<number, GainNode> } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -164,24 +176,37 @@ export function KaraokePlayer({
   }, [lrcUrl]);
 
   // Mute live: la console può cambiare la traccia silenziata anche a brano in corso.
+  // L'effetto è immediato sul synth, qualunque motore stia suonando.
   useEffect(() => {
     const prev = mutedRef.current;
     const next = mutedTrack ?? null;
     mutedRef.current = next;
-    const live = sf2LiveRef.current;
-    if (!live || prev === next) return;
-    const setMute = (track: number | null, muted: boolean) => {
-      if (track == null) return;
-      const ch = live.channelOfTrack[track - 1];
-      if (ch == null) return;
-      try {
-        live.synth.midiChannels[ch]?.setSystemParameter("isMuted", muted);
-      } catch {
-        /* canale non disponibile */
+    if (prev === next) return;
+
+    const sf2 = sf2LiveRef.current;
+    if (sf2) {
+      const setMute = (track: number | null, muted: boolean) => {
+        if (track == null) return;
+        const ch = sf2.channelOfTrack[track - 1];
+        if (ch == null) return;
+        try {
+          sf2.synth.midiChannels[ch]?.setSystemParameter("isMuted", muted);
+        } catch {
+          /* canale non disponibile */
+        }
+      };
+      setMute(prev, false);
+      setMute(next, true);
+    }
+
+    const gleitz = gleitzLiveRef.current;
+    if (gleitz) {
+      // rampa di 10ms per evitare il click; azzera anche le note già in suono
+      const t = gleitz.ctx.currentTime;
+      for (const [trackIndex, gain] of gleitz.gainOfTrack) {
+        gain.gain.setTargetAtTime(trackIndex === next ? 0 : 1, t, 0.01);
       }
-    };
-    setMute(prev, false);
-    setMute(next, true);
+    }
   }, [mutedTrack]);
 
   // Trasposizione live: con SF2 agisce subito sul synth; con Gleitz sulle note ancora da programmare.
@@ -216,7 +241,6 @@ export function KaraokePlayer({
       const sfBuf = await fetchSf2(sf2File);
       await synth.soundBankManager.addSoundBank(sfBuf.slice(0), "main");
       await synth.isReady;
-      applySf2Transpose(synth, transposeRef.current);
 
       // skipToFirstNoteOn falso: il tempo deve restare allineato ai timestamp dei testi.
       const seq = new Sequencer(synth, { skipToFirstNoteOn: false });
@@ -228,6 +252,12 @@ export function KaraokePlayer({
         onEnded?.();
       });
       seq.play();
+
+      // il transpose va applicato DOPO l'avvio: i controller-reset iniziali del file lo cancellerebbero
+      if (transposeRef.current !== 0) {
+        applySf2Transpose(synth, transposeRef.current);
+        window.setTimeout(() => applySf2Transpose(synth, transposeRef.current), 600);
+      }
 
       // mute per canale (non si tolgono le note dal file: così si può riattivare live)
       sf2LiveRef.current = { synth, channelOfTrack: midi.tracks.map((t) => t.channel) };
@@ -315,18 +345,30 @@ export function KaraokePlayer({
         throw new Error("Il file non contiene tracce melodiche riproducibili");
       }
 
-      const neededInstruments = [...new Set(melodic.map(({ track }) => gleitzNameForPatch(track.instrument.number)))];
-      setSfProgress({ done: 0, total: neededInstruments.length });
+      // Un GainNode per traccia: il mute live azzera la traccia all'istante, note in corso comprese.
+      const gainOfTrack = new Map<number, GainNode>();
+      for (const { trackIndex } of melodic) {
+        const g = ac.createGain();
+        g.gain.value = trackIndex === mutedRef.current ? 0 : 1;
+        g.connect(ac.destination);
+        gainOfTrack.set(trackIndex, g);
+      }
+      gleitzLiveRef.current = { ctx: ac, gainOfTrack };
+
+      // strumenti caricati per traccia (lo stesso file mp3 è in cache HTTP: il costo extra è solo la decodifica)
+      setSfProgress({ done: 0, total: melodic.length });
       let loaded = 0;
       await Promise.all(
-        neededInstruments.map(async (gleitzName) => {
+        melodic.map(async ({ track, trackIndex }) => {
+          const gleitzName = gleitzNameForPatch(track.instrument.number);
           const p = await Soundfont.instrument(ac, gleitzName as Parameters<typeof Soundfont.instrument>[1], {
             nameToUrl,
             format: "mp3",
+            destination: gainOfTrack.get(trackIndex),
           });
-          players.set(gleitzName, p);
+          players.set(String(trackIndex), p);
           loaded += 1;
-          setSfProgress({ done: loaded, total: neededInstruments.length });
+          setSfProgress({ done: loaded, total: melodic.length });
         })
       );
 
@@ -343,7 +385,7 @@ export function KaraokePlayer({
       };
       const events: Ev[] = [];
       for (const { track, trackIndex } of melodic) {
-        const inst = players.get(gleitzNameForPatch(track.instrument.number))!;
+        const inst = players.get(String(trackIndex))!;
         for (const note of track.notes) {
           events.push({
             time: note.time,
@@ -430,6 +472,7 @@ export function KaraokePlayer({
         window.clearInterval(pumpTimer);
         window.clearInterval(endWatch);
         controlsRef.current = null;
+        gleitzLiveRef.current = null;
         stopAllNotes();
         players.clear();
         cleanupAc();
