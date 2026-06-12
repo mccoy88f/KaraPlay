@@ -8,6 +8,7 @@ import { extractMidiLyrics } from "../lib/midiLyrics";
 import { gleitzNameForPatch } from "../lib/gmPatchToGleitz";
 import { getSoundfontBank } from "../lib/soundfontBanks";
 import type { SoundfontBankId } from "../lib/soundfontBanks";
+import { STAGE_SHELL_CLASS, StageStartOverlay } from "./StageStartOverlay";
 
 const base = import.meta.env.VITE_API_URL ?? "";
 
@@ -457,7 +458,7 @@ export function KaraokePlayer({ songId, title, artist, lrcPath, soundfontBankId,
 
   // Stessa cornice "palco" dei video YouTube: card nera che riempe lo schermo, overlay di avvio.
   return (
-    <div className="relative min-h-[24rem] w-full flex-1 overflow-hidden rounded-2xl border border-zinc-800 bg-black shadow-2xl shadow-black/60">
+    <div className={STAGE_SHELL_CLASS}>
       {playing ? (
         <>
           <div className="flex h-full flex-col items-center justify-center gap-5 px-8 py-12 text-center md:gap-8">
@@ -507,39 +508,32 @@ export function KaraokePlayer({ songId, title, artist, lrcPath, soundfontBankId,
           )}
         </>
       ) : (
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-black/60 px-6 text-center">
-          <p className="font-display max-w-3xl text-2xl font-semibold text-white md:text-4xl">{title}</p>
-          <p className="text-zinc-400">{artist}</p>
-          <span className="flex flex-wrap items-center justify-center gap-2">
-            <span className="rounded-full border border-amber-500/40 bg-amber-500/10 px-3 py-1 text-xs uppercase tracking-widest text-amber-200/90">
-              🎹 Karaoke MIDI
+        <StageStartOverlay
+          title={title}
+          subtitle={artist}
+          badges={
+            <span className="flex flex-wrap items-center justify-center gap-2">
+              <span className="rounded-full border border-amber-500/40 bg-amber-500/10 px-3 py-1 text-xs uppercase tracking-widest text-amber-200/90">
+                🎹 Karaoke MIDI
+              </span>
+              <span className="rounded-full border border-zinc-700 bg-zinc-900/80 px-3 py-1 text-xs uppercase tracking-widest text-zinc-400">
+                {bank.shortLabel}
+              </span>
             </span>
-            <span className="rounded-full border border-zinc-700 bg-zinc-900/80 px-3 py-1 text-xs uppercase tracking-widest text-zinc-400">
-              {bank.shortLabel}
-            </span>
-          </span>
-
-          {loadError && <p className="max-w-xl text-sm text-red-400">{loadError}</p>}
-
-          {midi && !loadError && (
-            <button
-              type="button"
-              disabled={loadingSf}
-              onClick={() => void startPlayback()}
-              className="rounded-xl bg-fuchsia-600 px-8 py-4 text-lg font-semibold text-white shadow-lg shadow-fuchsia-900/40 hover:bg-fuchsia-500 disabled:opacity-50"
-            >
-              {loadingSf
-                ? sfProgress
-                  ? `Carico strumenti… ${sfProgress.done}/${sfProgress.total}`
-                  : "Carico strumenti…"
-                : "▶ Avvia karaoke"}
-            </button>
-          )}
-          {!midi && !loadError && <p className="text-sm text-zinc-500">Carico il brano…</p>}
-          <p className="text-xs text-zinc-400">
-            Il browser richiede un tap su questo pulsante per avviare l&apos;audio.
-          </p>
-        </div>
+          }
+          error={loadError}
+          showButton={Boolean(midi && !loadError)}
+          waitingText={!midi && !loadError ? "Carico il brano…" : null}
+          buttonLabel={
+            loadingSf
+              ? sfProgress
+                ? `Carico strumenti… ${sfProgress.done}/${sfProgress.total}`
+                : "Carico strumenti…"
+              : "▶ Avvia karaoke"
+          }
+          buttonDisabled={loadingSf}
+          onStart={() => void startPlayback()}
+        />
       )}
     </div>
   );

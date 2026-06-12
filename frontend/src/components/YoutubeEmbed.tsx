@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { STAGE_PLAYER_FRAME_CLASS, STAGE_SHELL_CLASS, StageStartOverlay } from "./StageStartOverlay";
 
 type Props = {
   ytUrl: string;
@@ -121,28 +122,26 @@ export function YoutubeEmbed({ ytUrl, title, onEnded }: Props) {
   }
 
   return (
-    <div className="relative min-h-0 w-full flex-1 overflow-hidden rounded-2xl border border-zinc-800 bg-black shadow-2xl shadow-black/60">
+    <div className={STAGE_SHELL_CLASS}>
       {started ? (
-        <div ref={containerRef} className="h-full w-full [&>iframe]:h-full [&>iframe]:w-full">
+        <div
+          ref={containerRef}
+          className={`${STAGE_PLAYER_FRAME_CLASS} [&>iframe]:h-full [&>iframe]:w-full`}
+        >
           <div />
         </div>
       ) : (
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-black/60 px-6 text-center">
-          <p className="font-display max-w-3xl text-2xl font-semibold text-white md:text-4xl">{title}</p>
-          <span className="rounded-full border border-red-500/40 bg-red-500/10 px-3 py-1 text-xs uppercase tracking-widest text-red-200/90">
-            🎬 YouTube
-          </span>
-          <button
-            type="button"
-            onClick={() => setStarted(true)}
-            className="rounded-xl bg-red-600 px-8 py-4 text-lg font-semibold text-white shadow-lg shadow-red-900/40 hover:bg-red-500"
-          >
-            ▶ Avvia video
-          </button>
-          <p className="text-xs text-zinc-400">
-            Il browser richiede un tap su questo pulsante per avviare il video con l&apos;audio.
-          </p>
-        </div>
+        <StageStartOverlay
+          title={title}
+          badges={
+            <span className="rounded-full border border-red-500/40 bg-red-500/10 px-3 py-1 text-xs uppercase tracking-widest text-red-200/90">
+              🎬 YouTube
+            </span>
+          }
+          buttonLabel="▶ Avvia video"
+          onStart={() => setStarted(true)}
+          hint="Il browser richiede un tap su questo pulsante per avviare il video con l'audio."
+        />
       )}
     </div>
   );
