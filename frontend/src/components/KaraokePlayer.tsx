@@ -9,6 +9,7 @@ import { gleitzNameForPatch } from "../lib/gmPatchToGleitz";
 import { getSoundfontBank } from "../lib/soundfontBanks";
 import type { SoundfontBankId } from "../lib/soundfontBanks";
 import { midiNumberToName } from "../lib/midiNote";
+import { buildPlaybackMidiBuffer, normalizeMutedTrack } from "../lib/midiMute";
 import { STAGE_SHELL_CLASS, StageStartOverlay } from "./StageStartOverlay";
 import { StageTransportBar } from "./StageTransportBar";
 
@@ -55,20 +56,6 @@ function applySf2Transpose(synth: WorkletSynthesizer, semitones: number) {
     } catch {
       /* canale non disponibile */
     }
-  }
-}
-
-/** Mute live SF2: isMuted blocca le note nuove; CC7 + CC123 silenziano subito quelle in corso. */
-function applySf2ChannelMute(synth: WorkletSynthesizer, ch: number, muted: boolean) {
-  const cc = sf2ControllerChange(synth);
-  const channel = synth.midiChannels[ch];
-  try {
-    channel?.setSystemParameter("isMuted", muted);
-    channel?.lockController(7, muted);
-    cc(ch, 7, muted ? 0 : 127);
-    if (muted) cc(ch, 123, 0);
-  } catch {
-    /* canale non disponibile */
   }
 }
 
@@ -140,13 +127,15 @@ export function KaraokePlayer({
   /** Comandi play/pausa/riavvia del motore attivo. */
   const controlsRef = useRef<Controls | null>(null);
   /** Traccia silenziata corrente: modificabile dalla console anche a brano in corso. */
-  const mutedRef = useRef<number | null>(mutedTrack ?? null);
+  const mutedRef = useRef<number | null>(normalizeMutedTrack(mutedTrack));
   /** Trasposizione corrente: la console può cambiarla anche a brano in corso. */
   const transposeRef = useRef<number>(transposeSemitones);
-  /** Per il mute live in SF2: synth e canale di ogni traccia. */
-  const sf2LiveRef = useRef<{ synth: WorkletSynthesizer; channelOfTrack: number[] } | null>(null);
+  /** Motore SF2 attivo: reload del file senza la traccia muta. */
+  const sf2LiveRef = useRef<{ synth: WorkletSynthesizer; seq: Sequencer } | null>(null);
   /** Per il mute live in Gleitz: un GainNode per traccia (azzeramento immediato sul synth). */
   const gleitzLiveRef = useRef<{ ctx: AudioContext; gainOfTrack: Map<number, GainNode> } | null>(null);
+  /** Player Gleitz per traccia (stop immediato al mute). */
+  const gleitzPlayersRef = useRef<Map<number, Awaited<ReturnType<typeof Soundfont.instrument>>>>(new Map());
   /** Riprogramma le note Gleitz dal punto corrente (trasposizione/mute immediati). */
   const gleitzPumpRef = useRef<{ rescheduleFromNow: () => void } | null>(null);
 
@@ -195,36 +184,62 @@ export function KaraokePlayer({
     };
   }, [lrcUrl]);
 
-  // Mute live: la console può cambiare la traccia silenziata anche a brano in corso.
-  // L'effetto è immediato sul synth, qualunque motore stia suonando.
-  useEffect(() => {
-    const prev = mutedRef.current;
-    const next = mutedTrack ?? null;
-    mutedRef.current = next;
-    if (prev === next) return;
+  const reloadSf2ForMute = useCallback(
+    (muted: number | null) => {
+      const live = sf2LiveRef.current;
+      const buf = midiBufRef.current;
+      if (!live || !buf) return;
+      const t = live.seq.currentTime;
+      const wasPaused = live.seq.paused;
+      const playbackBuf = buildPlaybackMidiBuffer(buf, muted);
+      live.seq.loadNewSongList([{ binary: playbackBuf.slice(0), fileName: `${title}.mid` }]);
+      live.seq.currentTime = t;
+      if (transposeRef.current !== 0) {
+        applySf2Transpose(live.synth, transposeRef.current);
+        window.setTimeout(() => applySf2Transpose(live.synth, transposeRef.current), 600);
+      }
+      if (!wasPaused) live.seq.play();
+    },
+    [title]
+  );
 
-    const sf2 = sf2LiveRef.current;
-    if (sf2) {
-      const setMute = (track: number | null, muted: boolean) => {
-        if (track == null) return;
-        const ch = sf2.channelOfTrack[track - 1];
-        if (ch == null) return;
-        applySf2ChannelMute(sf2.synth, ch, muted);
-      };
-      setMute(prev, false);
-      setMute(next, true);
-    }
-
+  const applyGleitzTrackMute = useCallback((prev: number | null, next: number | null) => {
     const gleitz = gleitzLiveRef.current;
     if (gleitz) {
-      // rampa di 10ms per evitare il click; azzera anche le note già in suono
       const t = gleitz.ctx.currentTime;
       for (const [trackIndex, gain] of gleitz.gainOfTrack) {
-        gain.gain.setTargetAtTime(trackIndex === next ? 0 : 1, t, 0.01);
+        const vol = trackIndex === next ? 0 : 1;
+        gain.gain.cancelScheduledValues(t);
+        gain.gain.setValueAtTime(vol, t);
+      }
+    }
+    if (prev != null) {
+      try {
+        gleitzPlayersRef.current.get(prev)?.stop?.();
+      } catch {
+        /* ignore */
+      }
+    }
+    if (next != null) {
+      try {
+        gleitzPlayersRef.current.get(next)?.stop?.();
+      } catch {
+        /* ignore */
       }
     }
     gleitzPumpRef.current?.rescheduleFromNow();
-  }, [mutedTrack]);
+  }, []);
+
+  // Mute live: la console può cambiare la traccia silenziata anche a brano in corso.
+  useEffect(() => {
+    const prev = mutedRef.current;
+    const next = normalizeMutedTrack(mutedTrack);
+    mutedRef.current = next;
+    if (prev === next) return;
+
+    if (sf2LiveRef.current) reloadSf2ForMute(next);
+    if (gleitzLiveRef.current) applyGleitzTrackMute(prev, next);
+  }, [mutedTrack, reloadSf2ForMute, applyGleitzTrackMute]);
 
   // Trasposizione live: SF2 via RPN; Gleitz riprogramma dal punto corrente (evita il ritardo LOOKAHEAD 8s).
   useEffect(() => {
@@ -263,7 +278,8 @@ export function KaraokePlayer({
       // skipToFirstNoteOn falso: il tempo deve restare allineato ai timestamp dei testi.
       const seq = new Sequencer(synth, { skipToFirstNoteOn: false });
       seq.loopCount = 0;
-      seq.loadNewSongList([{ binary: midiBuf.slice(0), fileName: `${title}.mid` }]);
+      const playbackBuf = buildPlaybackMidiBuffer(midiBuf.slice(0), mutedRef.current);
+      seq.loadNewSongList([{ binary: playbackBuf.slice(0), fileName: `${title}.mid` }]);
       seq.eventHandler.addEvent("songEnded", "karaoke-player-end", () => {
         setPlaying(false);
         setTransportSec(0);
@@ -277,12 +293,7 @@ export function KaraokePlayer({
         window.setTimeout(() => applySf2Transpose(synth, transposeRef.current), 600);
       }
 
-      // mute per canale (non si tolgono le note dal file: così si può riattivare live)
-      sf2LiveRef.current = { synth, channelOfTrack: midi.tracks.map((t) => t.channel) };
-      if (mutedRef.current != null) {
-        const ch = midi.tracks[mutedRef.current - 1]?.channel;
-        if (ch != null) applySf2ChannelMute(synth, ch, true);
-      }
+      sf2LiveRef.current = { synth, seq };
 
       timeSourceRef.current = () => Math.max(0, seq.currentHighResolutionTime);
       controlsRef.current = {
@@ -349,7 +360,7 @@ export function KaraokePlayer({
         return `${base}/api/media/soundfont/${encodeURIComponent(folder)}/${encodeURIComponent(`${name}-${fmt}.js`)}`;
       };
 
-      // tutte le tracce melodiche (anche quella al momento silenziata: si può riattivare live)
+      // Tracce melodiche riproducibili (Gleitz non ha kit batteria GM).
       const melodic = midi.tracks
         .map((t, i) => ({ track: t, trackIndex: i + 1 }))
         .filter(({ track }) => track.notes.length > 0 && track.channel !== 9);
@@ -357,15 +368,19 @@ export function KaraokePlayer({
         throw new Error("Il file non contiene tracce melodiche riproducibili");
       }
 
-      // Un GainNode per traccia: il mute live azzera la traccia all'istante, note in corso comprese.
+      // GainNode per ogni traccia con note (mute per numero traccia, non per canale MIDI).
+      const tracksWithNotes = midi.tracks
+        .map((t, i) => ({ track: t, trackIndex: i + 1 }))
+        .filter(({ track }) => track.notes.length > 0);
       const gainOfTrack = new Map<number, GainNode>();
-      for (const { trackIndex } of melodic) {
+      for (const { trackIndex } of tracksWithNotes) {
         const g = ac.createGain();
         g.gain.value = trackIndex === mutedRef.current ? 0 : 1;
         g.connect(ac.destination);
         gainOfTrack.set(trackIndex, g);
       }
       gleitzLiveRef.current = { ctx: ac, gainOfTrack };
+      gleitzPlayersRef.current = new Map();
 
       // strumenti caricati per traccia (lo stesso file mp3 è in cache HTTP: il costo extra è solo la decodifica)
       setSfProgress({ done: 0, total: melodic.length });
@@ -379,6 +394,7 @@ export function KaraokePlayer({
             destination: gainOfTrack.get(trackIndex),
           });
           players.set(String(trackIndex), p);
+          gleitzPlayersRef.current.set(trackIndex, p);
           loaded += 1;
           setSfProgress({ done: loaded, total: melodic.length });
         })
@@ -497,6 +513,7 @@ export function KaraokePlayer({
         controlsRef.current = null;
         gleitzLiveRef.current = null;
         gleitzPumpRef.current = null;
+        gleitzPlayersRef.current.clear();
         stopAllNotes();
         players.clear();
         cleanupAc();
