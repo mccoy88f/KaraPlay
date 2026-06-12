@@ -34,7 +34,6 @@ L'app è su `http://<host>:8083`.
 | `/join` | Pubblico (smartphone): prenotazioni, voti, commenti, classifica |
 | `/display` | Proiettore / TV (login admin): palco, testi, video, QR, punteggi |
 | `/admin` | Host / DJ: coda live, conduzione serata, catalogo, impostazioni tecniche |
-| `/pitch-demo.html` | Demo interna: confronto pitch shift Tone.js vs SoundTouchJS su MP3 |
 
 ## Funzionalità principali
 
@@ -96,7 +95,6 @@ cd frontend && npm install && npm run dev
 ```
 
 - Frontend: `http://localhost:5173`
-- Demo pitch: `http://localhost:5173/pitch-demo.html`
 - Backend API: `http://localhost:3000`
 - MailHog (email test): `http://localhost:8025`
 
@@ -158,9 +156,6 @@ licenze open source **compatibili con uso commerciale**, ciascuna con i propri o
   sotto MPL-2.0.
 - Includi l'avviso di copyright e un link alla licenza MPL (es. sezione crediti in app o file
   `THIRD_PARTY_LICENSES`).
-
-**Demo pitch** (`/pitch-demo.html`): usa anche [Tone.js](https://github.com/Tonejs/Tone.js) (MIT)
-solo in dev/build della pagina demo, non nel player di produzione del display.
 
 ### Strumenti server (backend / Docker)
 
