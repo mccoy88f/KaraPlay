@@ -82,6 +82,10 @@ export async function registerSongRoutes(fastify: FastifyInstance): Promise<void
     track: z.number().int().min(1).max(32).nullable(),
   });
 
+  const transposeSemitonesSchema = z.object({
+    semitones: z.number().int().min(-12).max(12),
+  });
+
   /** Silenzia una traccia del MIDI (voce guida): vale per tutte le esecuzioni del brano. */
   fastify.put<{ Params: { id: string } }>(
     "/admin/songs/:id/muted-track",
@@ -115,6 +119,44 @@ export async function registerSongRoutes(fastify: FastifyInstance): Promise<void
         getIo()?.to(`event:${b.eventId}`).emit("song:muted-track", {
           songId: song.id,
           mutedTrack: parsed.data.track,
+        });
+      }
+      return reply.send(updated);
+    }
+  );
+
+  /** Trasposizione in semitoni: vale per tutte le esecuzioni del brano e si applica live sul display. */
+  fastify.put<{ Params: { id: string } }>(
+    "/admin/songs/:id/transpose-semitones",
+    { preHandler: [requireAdmin] },
+    async (request, reply) => {
+      const parsed = transposeSemitonesSchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.code(400).send({ error: "Trasposizione non valida (-12…+12 semitoni)" });
+      }
+      const jwt = request.user as JwtPayload;
+      const song = await prisma.song.findUnique({ where: { id: request.params.id } });
+      if (!song) {
+        return reply.code(404).send({ error: "Canzone non trovata" });
+      }
+      if (song.source !== "MIDI") {
+        return reply.code(400).send({ error: "Solo i brani MIDI hanno tonalità regolabile" });
+      }
+      if (jwt.role !== "superadmin" && song.adminId !== jwt.sub) {
+        return reply.code(403).send({ error: "Questo brano è di un altro admin" });
+      }
+      const updated = await prisma.song.update({
+        where: { id: song.id },
+        data: { transposeSemitones: parsed.data.semitones },
+      });
+      const performing = await prisma.booking.findMany({
+        where: { songId: song.id, status: "PERFORMING" },
+        select: { eventId: true },
+      });
+      for (const b of performing) {
+        getIo()?.to(`event:${b.eventId}`).emit("song:transpose-semitones", {
+          songId: song.id,
+          transposeSemitones: parsed.data.semitones,
         });
       }
       return reply.send(updated);

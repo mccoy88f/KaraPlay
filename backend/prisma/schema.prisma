@@ -96,6 +96,8 @@ model Song {
   adminId   String?
   /** Traccia MIDI da silenziare in riproduzione (voce guida, di solito la 4). 1-based. */
   mutedTrack Int?
+  /** Trasposizione globale in semitoni (-12…+12). Vale per tutte le esecuzioni del brano. */
+  transposeSemitones Int @default(0)
 
   admin    AdminUser? @relation(fields: [adminId], references: [id])
   bookings Booking[]

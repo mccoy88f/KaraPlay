@@ -8,9 +8,12 @@ import { extractMidiLyrics } from "../lib/midiLyrics";
 import { gleitzNameForPatch } from "../lib/gmPatchToGleitz";
 import { getSoundfontBank } from "../lib/soundfontBanks";
 import type { SoundfontBankId } from "../lib/soundfontBanks";
+import { midiNumberToName } from "../lib/midiNote";
 import { STAGE_SHELL_CLASS, StageStartOverlay } from "./StageStartOverlay";
+import { StageTransportBar } from "./StageTransportBar";
 
 const base = import.meta.env.VITE_API_URL ?? "";
+const CONTROLS_HIDE_MS = 3000;
 
 /** I file .sf2 possono superare i 100MB: una sola fetch per sessione, condivisa tra i brani. */
 const sf2Cache = new Map<string, Promise<ArrayBuffer>>();
@@ -30,10 +33,22 @@ function fetchSf2(file: string): Promise<ArrayBuffer> {
   return p;
 }
 
+function applySf2Transpose(synth: WorkletSynthesizer, semitones: number) {
+  try {
+    (synth as WorkletSynthesizer & { setMasterParameter?: (name: string, value: number) => void }).setMasterParameter?.(
+      "transpose",
+      semitones
+    );
+  } catch {
+    /* synth senza parametro master transpose */
+  }
+}
+
 type Controls = {
   pause: () => void;
   resume: () => void;
   restart: () => void;
+  seek: (sec: number) => void;
 };
 
 type Props = {
@@ -52,9 +67,21 @@ type Props = {
   onEnded?: () => void;
   /** Traccia MIDI da silenziare (1-based): la voce guida, di solito la 4. Modificabile anche live. */
   mutedTrack?: number | null;
+  /** Trasposizione in semitoni (-12…+12). Modificabile live dalla console admin. */
+  transposeSemitones?: number;
 };
 
-export function KaraokePlayer({ songId, title, artist, lrcPath, soundfontBankId, remoteMidiUrl, onEnded, mutedTrack }: Props) {
+export function KaraokePlayer({
+  songId,
+  title,
+  artist,
+  lrcPath,
+  soundfontBankId,
+  remoteMidiUrl,
+  onEnded,
+  mutedTrack,
+  transposeSemitones = 0,
+}: Props) {
   const bankId = soundfontBankId ?? getSoundfontBank(null).id;
   const bank = getSoundfontBank(bankId);
 
@@ -74,9 +101,11 @@ export function KaraokePlayer({ songId, title, artist, lrcPath, soundfontBankId,
   const [transportSec, setTransportSec] = useState(0);
   const [loadingSf, setLoadingSf] = useState(false);
   const [sfProgress, setSfProgress] = useState<{ done: number; total: number } | null>(null);
+  const [controlsVisible, setControlsVisible] = useState(true);
 
   const disposeRef = useRef<(() => void) | null>(null);
   const rafRef = useRef(0);
+  const hideControlsTimerRef = useRef<number | null>(null);
   const midiBufRef = useRef<ArrayBuffer | null>(null);
   /** Sorgente del tempo di trasporto (per i testi): impostata dal motore di playback attivo. */
   const timeSourceRef = useRef<(() => number) | null>(null);
@@ -84,6 +113,8 @@ export function KaraokePlayer({ songId, title, artist, lrcPath, soundfontBankId,
   const controlsRef = useRef<Controls | null>(null);
   /** Traccia silenziata corrente: modificabile dalla console anche a brano in corso. */
   const mutedRef = useRef<number | null>(mutedTrack ?? null);
+  /** Trasposizione corrente: la console può cambiarla anche a brano in corso. */
+  const transposeRef = useRef<number>(transposeSemitones);
   /** Per il mute live in SF2: synth e canale di ogni traccia. */
   const sf2LiveRef = useRef<{ synth: WorkletSynthesizer; channelOfTrack: number[] } | null>(null);
 
@@ -153,6 +184,19 @@ export function KaraokePlayer({ songId, title, artist, lrcPath, soundfontBankId,
     setMute(next, true);
   }, [mutedTrack]);
 
+  // Trasposizione live: con SF2 agisce subito sul synth; con Gleitz sulle note ancora da programmare.
+  useEffect(() => {
+    transposeRef.current = transposeSemitones;
+    const live = sf2LiveRef.current;
+    if (live) applySf2Transpose(live.synth, transposeSemitones);
+  }, [transposeSemitones]);
+
+  const bumpControlsVisibility = useCallback(() => {
+    setControlsVisible(true);
+    if (hideControlsTimerRef.current != null) window.clearTimeout(hideControlsTimerRef.current);
+    hideControlsTimerRef.current = window.setTimeout(() => setControlsVisible(false), CONTROLS_HIDE_MS);
+  }, []);
+
   /** Motore SF2: sintesi completa via spessasynth (batteria GM, program change, pitch bend). */
   const startSf2Playback = useCallback(async () => {
     const midiBuf = midiBufRef.current;
@@ -172,6 +216,7 @@ export function KaraokePlayer({ songId, title, artist, lrcPath, soundfontBankId,
       const sfBuf = await fetchSf2(sf2File);
       await synth.soundBankManager.addSoundBank(sfBuf.slice(0), "main");
       await synth.isReady;
+      applySf2Transpose(synth, transposeRef.current);
 
       // skipToFirstNoteOn falso: il tempo deve restare allineato ai timestamp dei testi.
       const seq = new Sequencer(synth, { skipToFirstNoteOn: false });
@@ -205,10 +250,14 @@ export function KaraokePlayer({ songId, title, artist, lrcPath, soundfontBankId,
           seq.currentTime = 0;
           seq.play();
         },
+        seek: (sec: number) => {
+          seq.currentTime = Math.max(0, sec);
+        },
       };
       setLoadingSf(false);
       setPaused(false);
       setPlaying(true);
+      bumpControlsVisibility();
 
       disposeRef.current = () => {
         sf2LiveRef.current = null;
@@ -230,7 +279,7 @@ export function KaraokePlayer({ songId, title, artist, lrcPath, soundfontBankId,
       setLoadError(e instanceof Error ? e.message : "Errore caricamento SoundFont");
       void ac.close().catch(() => {});
     }
-  }, [midi, bank.sf2File, title, onEnded]);
+  }, [midi, bank.sf2File, title, onEnded, bumpControlsVisibility]);
 
   /**
    * Motore Gleitz (campioni mp3 pre-renderizzati): AudioContext puro con programmazione
@@ -284,7 +333,14 @@ export function KaraokePlayer({ songId, title, artist, lrcPath, soundfontBankId,
       setLoadingSf(false);
       setSfProgress(null);
 
-      type Ev = { time: number; trackIndex: number; name: string; duration: number; gain: number; inst: ReturnType<typeof players.get> };
+      type Ev = {
+        time: number;
+        trackIndex: number;
+        midi: number;
+        duration: number;
+        gain: number;
+        inst: ReturnType<typeof players.get>;
+      };
       const events: Ev[] = [];
       for (const { track, trackIndex } of melodic) {
         const inst = players.get(gleitzNameForPatch(track.instrument.number))!;
@@ -292,7 +348,7 @@ export function KaraokePlayer({ songId, title, artist, lrcPath, soundfontBankId,
           events.push({
             time: note.time,
             trackIndex,
-            name: note.name,
+            midi: note.midi,
             duration: Math.max(0.02, note.duration),
             gain: Math.max(0.05, note.velocity ?? 0.75),
             inst,
@@ -313,9 +369,11 @@ export function KaraokePlayer({ songId, title, artist, lrcPath, soundfontBankId,
           const ev = events[cursor++];
           // mute live: le note della traccia silenziata si saltano in fase di programmazione
           if (ev.trackIndex === mutedRef.current) continue;
+          const name = midiNumberToName(ev.midi + transposeRef.current);
+          if (!name) continue;
           const when = Math.max(songZero + ev.time, ac.currentTime + 0.02);
           try {
-            ev.inst!.play(ev.name, when, { duration: ev.duration, gain: ev.gain });
+            ev.inst!.play(name, when, { duration: ev.duration, gain: ev.gain });
           } catch {
             /* nota fuori dal range del campione: il resto del brano continua */
           }
@@ -356,9 +414,17 @@ export function KaraokePlayer({ songId, title, artist, lrcPath, soundfontBankId,
           void ac.resume().catch(() => {});
           pump();
         },
+        seek: (sec: number) => {
+          stopAllNotes();
+          cursor = 0;
+          while (cursor < events.length && events[cursor].time < sec) cursor++;
+          songZero = ac.currentTime - sec;
+          if (ac.state === "running") pump();
+        },
       };
       setPaused(false);
       setPlaying(true);
+      bumpControlsVisibility();
 
       disposeRef.current = () => {
         window.clearInterval(pumpTimer);
@@ -375,7 +441,7 @@ export function KaraokePlayer({ songId, title, artist, lrcPath, soundfontBankId,
       setLoadError(e instanceof Error ? e.message : "Errore durante l'avvio del brano");
       cleanupAc();
     }
-  }, [midi, bank.gleitzFolder, onEnded]);
+  }, [midi, bank.gleitzFolder, onEnded, bumpControlsVisibility]);
 
   const startPlayback = useCallback(async () => {
     try {
@@ -403,16 +469,25 @@ export function KaraokePlayer({ songId, title, artist, lrcPath, soundfontBankId,
       c.pause();
       setPaused(true);
     }
+    bumpControlsVisibility();
   }
 
   function restart() {
     controlsRef.current?.restart();
     setPaused(false);
     setTransportSec(0);
+    bumpControlsVisibility();
+  }
+
+  function seekTo(sec: number) {
+    controlsRef.current?.seek(sec);
+    setTransportSec(sec);
+    bumpControlsVisibility();
   }
 
   useEffect(() => {
     return () => {
+      if (hideControlsTimerRef.current != null) window.clearTimeout(hideControlsTimerRef.current);
       disposeRef.current?.();
       disposeRef.current = null;
     };
@@ -456,12 +531,18 @@ export function KaraokePlayer({ songId, title, artist, lrcPath, soundfontBankId,
     return "text-zinc-100";
   }
 
+  const durationSec = Math.max(0.5, midi?.duration ?? 0);
+
   // Stessa cornice "palco" dei video YouTube: card nera che riempe lo schermo, overlay di avvio.
   return (
-    <div className={STAGE_SHELL_CLASS}>
+    <div
+      className={STAGE_SHELL_CLASS}
+      onMouseMove={playing ? bumpControlsVisibility : undefined}
+      onTouchStart={playing ? bumpControlsVisibility : undefined}
+    >
       {playing ? (
         <>
-          <div className="flex h-full flex-col items-center justify-center gap-5 px-8 py-12 text-center md:gap-8">
+          <div className="flex h-full flex-col items-center justify-center gap-5 px-8 py-12 pb-24 text-center md:gap-8">
             {effectiveLines.length > 0 ? (
               rowLineIdx.map((lineIdx, row) => (
                 <p
@@ -482,30 +563,15 @@ export function KaraokePlayer({ songId, title, artist, lrcPath, soundfontBankId,
             )}
           </div>
 
-          {/* comandi del presentatore, in alto a destra */}
-          <div className="absolute right-3 top-3 flex gap-1.5">
-            <button
-              type="button"
-              onClick={togglePause}
-              title={paused ? "Riprendi" : "Pausa"}
-              className="rounded-lg border border-zinc-700 bg-zinc-950/80 px-3 py-2 text-sm text-zinc-200 backdrop-blur hover:bg-zinc-800"
-            >
-              {paused ? "▶" : "⏸"}
-            </button>
-            <button
-              type="button"
-              onClick={restart}
-              title="Riavvia dall'inizio"
-              className="rounded-lg border border-zinc-700 bg-zinc-950/80 px-3 py-2 text-sm text-zinc-200 backdrop-blur hover:bg-zinc-800"
-            >
-              ↻
-            </button>
-          </div>
-          {paused && (
-            <p className="absolute left-1/2 top-3 -translate-x-1/2 rounded-full border border-amber-500/40 bg-amber-500/10 px-4 py-1 text-xs uppercase tracking-widest text-amber-200">
-              in pausa
-            </p>
-          )}
+          <StageTransportBar
+            visible={controlsVisible || paused}
+            paused={paused}
+            currentSec={transportSec}
+            durationSec={durationSec}
+            onSeek={seekTo}
+            onTogglePause={togglePause}
+            onRestart={restart}
+          />
         </>
       ) : (
         <StageStartOverlay

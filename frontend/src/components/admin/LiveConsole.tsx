@@ -26,7 +26,7 @@ type QueueBooking = {
   ytTitle: string | null;
   ytProcessError: string | null;
   user: { nickname: string };
-  song: { id: string; title: string; artist: string; source?: string; mutedTrack?: number | null } | null;
+  song: { id: string; title: string; artist: string; source?: string; mutedTrack?: number | null; transposeSemitones?: number } | null;
   performance: { id: string; scoreTotal?: number | null } | null;
 };
 
@@ -42,6 +42,65 @@ const STATUS_STEPS: { id: string; label: string; hint: string }[] = [
 function bookingTitle(b: QueueBooking): string {
   if (b.song) return `${b.song.title} — ${b.song.artist}`;
   return b.ytTitle ?? b.ytUrl ?? "Brano";
+}
+
+type MidiSongSettings = {
+  id: string;
+  mutedTrack?: number | null;
+  transposeSemitones?: number;
+};
+
+function midiControlSelectClass(active: boolean) {
+  return active
+    ? "rounded-lg border border-amber-500/50 bg-amber-950/40 px-2 py-2 text-xs text-amber-200 outline-none"
+    : "rounded-lg border border-zinc-700 bg-zinc-950 px-2 py-2 text-xs text-zinc-400 outline-none";
+}
+
+function MidiLiveControls({
+  song,
+  onMute,
+  onTranspose,
+  muteTitle,
+  transposeTitle,
+  className = "",
+}: {
+  song: MidiSongSettings;
+  onMute: (track: number | null) => void;
+  onTranspose: (semitones: number) => void;
+  muteTitle: string;
+  transposeTitle: string;
+  className?: string;
+}) {
+  const transpose = song.transposeSemitones ?? 0;
+  return (
+    <div className={`flex flex-wrap items-center gap-2 ${className}`}>
+      <select
+        title={muteTitle}
+        value={song.mutedTrack ?? ""}
+        onChange={(e) => onMute(e.target.value === "" ? null : Number(e.target.value))}
+        className={midiControlSelectClass(song.mutedTrack != null)}
+      >
+        <option value="">🎤 voce on</option>
+        {Array.from({ length: 16 }, (_, i) => i + 1).map((n) => (
+          <option key={n} value={n}>
+            🔇 muta tr. {n}
+          </option>
+        ))}
+      </select>
+      <select
+        title={transposeTitle}
+        value={transpose}
+        onChange={(e) => onTranspose(Number(e.target.value))}
+        className={midiControlSelectClass(transpose !== 0)}
+      >
+        {Array.from({ length: 25 }, (_, i) => i - 12).map((n) => (
+          <option key={n} value={n}>
+            {n === 0 ? "🎵 tono orig." : n > 0 ? `🎵 +${n} st` : `🎵 ${n} st`}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
 }
 
 function formatMB(bytes: number): string {
@@ -265,6 +324,19 @@ export function LiveConsole({ authHeader, isSuper }: Props) {
     });
     if (ok) {
       setMsg(track == null ? "Voce guida riattivata." : `Traccia ${track} silenziata (voce guida).`);
+      if (eventId) await loadQueue(eventId);
+    }
+  }
+
+  /** Tonalità in semitoni: vale per tutte le esecuzioni MIDI e si applica live sul display. */
+  async function setTransposeSemitones(songId: string, semitones: number) {
+    setMsg(null);
+    const ok = await adminFetch(`/admin/songs/${songId}/transpose-semitones`, {
+      method: "PUT",
+      body: JSON.stringify({ semitones }),
+    });
+    if (ok) {
+      setMsg(semitones === 0 ? "Tonalità originale." : `Tonalità ${semitones > 0 ? "+" : ""}${semitones} semitoni.`);
       if (eventId) await loadQueue(eventId);
     }
   }
@@ -509,28 +581,13 @@ export function LiveConsole({ authHeader, isSuper }: Props) {
                 </div>
                 <div className="flex items-center gap-4">
                   {performing.song?.source === "MIDI" && (
-                    <select
-                      title="Silenzia la traccia della voce guida: ha effetto subito, anche a brano in corso"
-                      value={performing.song.mutedTrack ?? ""}
-                      onChange={(e) =>
-                        void setMutedTrack(
-                          performing.song!.id,
-                          e.target.value === "" ? null : Number(e.target.value)
-                        )
-                      }
-                      className={
-                        performing.song.mutedTrack != null
-                          ? "rounded-lg border border-amber-500/50 bg-amber-950/40 px-2 py-2 text-xs text-amber-200 outline-none"
-                          : "rounded-lg border border-zinc-700 bg-zinc-950 px-2 py-2 text-xs text-zinc-400 outline-none"
-                      }
-                    >
-                      <option value="">🎤 voce on</option>
-                      {Array.from({ length: 16 }, (_, i) => i + 1).map((n) => (
-                        <option key={n} value={n}>
-                          🔇 muta tr. {n}
-                        </option>
-                      ))}
-                    </select>
+                    <MidiLiveControls
+                      song={performing.song}
+                      muteTitle="Silenzia la traccia della voce guida: ha effetto subito, anche a brano in corso"
+                      transposeTitle="Trasposizione in semitoni: ha effetto subito sul display, anche a brano in corso"
+                      onMute={(track) => void setMutedTrack(performing.song!.id, track)}
+                      onTranspose={(semitones) => void setTransposeSemitones(performing.song!.id, semitones)}
+                    />
                   )}
                   <p className="rounded-full border border-amber-500/40 bg-amber-500/10 px-4 py-2 text-amber-200">
                     ★ <span className="font-display text-xl font-semibold">{voteAvg != null ? voteAvg.toFixed(1) : "—"}</span>
@@ -679,25 +736,14 @@ export function LiveConsole({ authHeader, isSuper }: Props) {
                       </button>
                     )}
                     {b.song?.source === "MIDI" && (
-                      <select
-                        title="Silenzia la traccia della voce guida (di solito la 4)"
-                        value={b.song.mutedTrack ?? ""}
-                        onChange={(e) =>
-                          void setMutedTrack(b.song!.id, e.target.value === "" ? null : Number(e.target.value))
-                        }
-                        className={
-                          b.song.mutedTrack != null
-                            ? "shrink-0 rounded-lg border border-amber-500/50 bg-amber-950/40 px-2 py-2 text-xs text-amber-200 outline-none"
-                            : "shrink-0 rounded-lg border border-zinc-700 bg-zinc-950 px-2 py-2 text-xs text-zinc-400 outline-none"
-                        }
-                      >
-                        <option value="">🎤 voce on</option>
-                        {Array.from({ length: 16 }, (_, i) => i + 1).map((n) => (
-                          <option key={n} value={n}>
-                            🔇 muta tr. {n}
-                          </option>
-                        ))}
-                      </select>
+                      <MidiLiveControls
+                        song={b.song}
+                        className="shrink-0"
+                        muteTitle="Silenzia la traccia della voce guida (di solito la 4)"
+                        transposeTitle="Trasposizione in semitoni per tutte le esecuzioni del brano"
+                        onMute={(track) => void setMutedTrack(b.song!.id, track)}
+                        onTranspose={(semitones) => void setTransposeSemitones(b.song!.id, semitones)}
+                      />
                     )}
                     {b.ytUrl && b.status === "APPROVED" && !b.song && (
                       <button

@@ -67,6 +67,7 @@ export async function registerBookingRoutes(fastify: FastifyInstance): Promise<v
               midiPath: s.midiPath,
               lrcPath: s.lrcPath,
               mutedTrack: s.mutedTrack,
+              transposeSemitones: s.transposeSemitones,
             }
           : null,
         user: { nickname: booking.user.nickname },

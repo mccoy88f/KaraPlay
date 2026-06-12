@@ -26,6 +26,7 @@ type SongPayload = {
   midiPath?: string | null;
   lrcPath?: string | null;
   mutedTrack?: number | null;
+  transposeSemitones?: number;
 };
 
 type PerfPayload = {
@@ -320,6 +321,14 @@ export function Display() {
         );
       });
 
+      socket.on("song:transpose-semitones", (payload: { songId: string; transposeSemitones: number }) => {
+        setLive((prev) =>
+          prev?.song?.id === payload.songId
+            ? { ...prev, song: { ...prev.song, transposeSemitones: payload.transposeSemitones } }
+            : prev
+        );
+      });
+
       socket.on("youtube:processing", (payload: { progress: number }) => {
         setYtHint(`Download video in corso… ${payload.progress}%`);
       });
@@ -507,6 +516,7 @@ export function Display() {
                 artist={live.song.artist}
                 lrcPath={live.song.lrcPath}
                 mutedTrack={live.song.mutedTrack}
+                transposeSemitones={live.song.transposeSemitones ?? 0}
                 soundfontBankId={sfBank}
                 onEnded={() => void autoEnd()}
               />

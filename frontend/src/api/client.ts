@@ -91,6 +91,7 @@ export type LivePerformancePayload = {
     midiPath: string | null;
     lrcPath: string | null;
     mutedTrack?: number | null;
+    transposeSemitones?: number;
   } | null;
   user: { nickname: string };
 };
