@@ -23,8 +23,8 @@ function emitProcessing(eventId: string, bookingId: string, progress: number) {
 }
 
 /**
- * Pre-download opzionale del VIDEO (mp4): il display lo riproduce dal server senza
- * pubblicità. Se non eseguito, il display ripiega sull'embed YouTube.
+ * Pre-download opzionale del VIDEO (mp4): riprodotto dal server sul display principale e Gobbo.
+ * Se non eseguito, il display ripiega sull'embed YouTube.
  */
 export async function startYoutubeProcess(bookingId: string): Promise<void> {
   const booking = await prisma.booking.findUnique({
@@ -124,6 +124,29 @@ async function runJob(bookingId: string) {
     jobMap.set(bookingId, { phase: "error", progress: 0, error: msg });
     getIo()?.to(`event:${eventId}`).emit("youtube:error", { bookingId, error: msg });
     await emitQueueUpdate(eventId);
+  }
+}
+
+/** Avvia il download se l'evento ha youtubeAutoDownload e la prenotazione è video in coda. */
+export async function maybeAutoDownloadYoutube(eventId: string, bookingId: string): Promise<void> {
+  const event = await prisma.event.findUnique({
+    where: { id: eventId },
+    select: { youtubeAutoDownload: true },
+  });
+  if (!event?.youtubeAutoDownload) return;
+
+  const booking = await prisma.booking.findUnique({
+    where: { id: bookingId },
+    select: { ytUrl: true, status: true, songId: true },
+  });
+  if (!booking?.ytUrl || booking.songId) return;
+  if (booking.status !== "APPROVED") return;
+  if (jobMap.get(bookingId)?.phase === "downloading") return;
+
+  try {
+    await startYoutubeProcess(bookingId);
+  } catch (e) {
+    console.error("[auto-youtube-download]", bookingId, e);
   }
 }
 

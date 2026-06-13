@@ -4,6 +4,7 @@ import { prisma } from "../lib/prisma.js";
 import { canManageEvent, requireAdmin } from "../middleware/admin.js";
 import type { JwtPayload } from "../types/jwt.js";
 import { emitQueueUpdate } from "../socket/emit.js";
+import { maybeAutoDownloadYoutube } from "../services/youtube-process.service.js";
 
 const adminCreateBookingSchema = z
   .object({
@@ -144,6 +145,7 @@ export async function registerAdminBookingRoutes(fastify: FastifyInstance): Prom
         },
       });
       await emitQueueUpdate(eventId);
+      if (body.ytUrl) void maybeAutoDownloadYoutube(eventId, booking.id);
       return reply.code(201).send(booking);
     }
   );
@@ -216,6 +218,9 @@ export async function registerAdminBookingRoutes(fastify: FastifyInstance): Prom
         },
       });
       await emitQueueUpdate(booking.eventId);
+      if (created.status === "APPROVED" && created.ytUrl) {
+        void maybeAutoDownloadYoutube(booking.eventId, created.id);
+      }
       return reply.code(201).send(created);
     }
   );
@@ -246,6 +251,7 @@ export async function registerAdminBookingRoutes(fastify: FastifyInstance): Prom
         },
       });
       await emitQueueUpdate(booking.eventId);
+      void maybeAutoDownloadYoutube(booking.eventId, updated.id);
       return reply.send(updated);
     }
   );

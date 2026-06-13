@@ -61,6 +61,10 @@ export function DisplayFollower() {
   liveRef.current = live;
   videoSyncRef.current = videoSync;
 
+  const isPerformer = Boolean(nickname && live?.nickname && nickname === live.nickname);
+  const youtubeSyncAvailable = Boolean(live?.source === "YOUTUBE" && live.bookingId);
+  const youtubeEmbedOnly = Boolean(live?.isYoutube && !youtubeSyncAvailable);
+
   useEffect(() => {
     reconcileGuestSession();
   }, []);
@@ -129,6 +133,7 @@ export function DisplayFollower() {
       }
 
       if (!liveRef.current?.isYoutube) return;
+      if (liveRef.current.source !== "YOUTUBE" || !liveRef.current.bookingId) return;
 
       const target = { sec: payload.sec, playing: payload.playing, paused: payload.paused };
 
@@ -233,7 +238,14 @@ export function DisplayFollower() {
                 transportSec={transport.sec}
                 synced={transport.synced}
               />
-            ) : live.isYoutube ? (
+            ) : live.isYoutube && youtubeEmbedOnly && isPerformer ? (
+              <div
+                className="flex min-h-0 flex-1 flex-col items-center justify-center rounded-2xl border border-amber-500/30 bg-amber-500/10 p-6 text-center md:p-10"
+                role="status"
+              >
+                <p className="max-w-md text-base leading-relaxed text-amber-50 md:text-lg">{t("displayFollower.embedNoSync")}</p>
+              </div>
+            ) : live.isYoutube && youtubeSyncAvailable ? (
               <>
                 {videoSync.error && (
                   <p className="shrink-0 text-center text-sm text-amber-300" role="status">
@@ -251,6 +263,11 @@ export function DisplayFollower() {
                   onConnect={requestVideoSync}
                 />
               </>
+            ) : live.isYoutube ? (
+              <div className="flex min-h-0 flex-1 flex-col items-center justify-center rounded-2xl border border-zinc-800 bg-black p-6 text-center">
+                <p className="font-display text-2xl font-semibold text-white md:text-3xl">{live.title}</p>
+                {live.artist && <p className="mt-2 text-zinc-400">{live.artist}</p>}
+              </div>
             ) : (
               <div className="flex min-h-0 flex-1 flex-col items-center justify-center rounded-2xl border border-zinc-800 bg-black p-6 text-center">
                 <p className="font-display text-2xl font-semibold text-white md:text-3xl">{live.title}</p>

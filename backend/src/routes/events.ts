@@ -26,6 +26,7 @@ const updateEventSchema = z.object({
     .string()
     .refine(isValidSoundfontBankId, "Banco sonoro non valido (gleitz o sf2:<file>)")
     .optional(),
+  youtubeAutoDownload: z.boolean().optional(),
 });
 
 const statusSchema = z.object({
@@ -48,6 +49,7 @@ export async function registerEventRoutes(fastify: FastifyInstance): Promise<voi
         status: true,
         joinCode: true,
         soundfontBankId: true,
+        youtubeAutoDownload: true,
       },
     });
     if (!event) {
@@ -71,6 +73,7 @@ export async function registerEventRoutes(fastify: FastifyInstance): Promise<voi
         status: true,
         joinCode: true,
         soundfontBankId: true,
+        youtubeAutoDownload: true,
         _count: { select: { bookings: true, performances: true } },
       },
     });
@@ -162,6 +165,7 @@ export async function registerEventRoutes(fastify: FastifyInstance): Promise<voi
           ...(data.location !== undefined ? { location: data.location } : {}),
           ...(data.date !== undefined ? { date: new Date(data.date) } : {}),
           ...(data.soundfontBankId !== undefined ? { soundfontBankId: data.soundfontBankId } : {}),
+          ...(data.youtubeAutoDownload !== undefined ? { youtubeAutoDownload: data.youtubeAutoDownload } : {}),
         },
       });
       return reply.send(event);

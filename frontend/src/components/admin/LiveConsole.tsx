@@ -801,7 +801,7 @@ export function LiveConsole({ authHeader }: Props) {
                               )}
                               {b.status === "READY" && (
                                 <span className="ml-2 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[10px] uppercase text-emerald-200/90">
-                                  {t("admin.live.badgeNoAds")}
+                                  {t("admin.live.badgeDownloaded")}
                                 </span>
                               )}
                               {b.status === "PROCESSING" && (
@@ -869,7 +869,7 @@ export function LiveConsole({ authHeader }: Props) {
                           onClick={() => void downloadVideo(b)}
                           className="rounded-lg border border-emerald-500/50 px-2.5 py-2 text-xs text-emerald-200 hover:bg-emerald-900/40 disabled:opacity-40"
                         >
-                          {t("admin.live.noAdsDownload")}
+                          {t("admin.live.downloadBtn")}
                         </button>
                       )}
                       <button

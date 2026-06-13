@@ -373,6 +373,19 @@ export const it = {
       uploadFailed: "Upload fallito",
       deleteFailed: "Eliminazione fallita",
     },
+    youtubeDownload: {
+      title: "Download video YouTube",
+      intro:
+        "Per ogni serata puoi far scaricare automaticamente i video quando entrano in scaletta (dopo approvazione o prenotazione host).",
+      eventLabel: "Serata",
+      chooseEvent: "— scegli —",
+      autoLabel: "Download automatico dei video YouTube all'aggiunta alla scaletta",
+      autoHint:
+        "Quando attivo, ogni brano video in coda (stato approvato) avvia il download sul server. In Conduzione resta disponibile il pulsante Scarica manuale.",
+      enabledOk: "Download automatico attivato per questa serata.",
+      disabledOk: "Download automatico disattivato.",
+      selectEventHint: "Seleziona una serata per configurare il download video.",
+    },
     stageConnect: {
       connected: "✓ Connesso",
       connecting: "Connessione…",
@@ -411,7 +424,7 @@ export const it = {
       renameVideoPrompt: "Titolo da mostrare per questo video:",
       titleUpdated: "Titolo aggiornato.",
       replayQueued: "«{title}» rimessa in scaletta per il bis.",
-      downloadStarted: "Download avviato: a fine download il brano partirà senza pubblicità.",
+      downloadStarted: "Download avviato: il video sarà pronto in scaletta al termine.",
       chooseEvent: "— scegli una serata —",
       newEvent: "+ Nuova serata",
       eventName: "Nome della serata",
@@ -441,7 +454,7 @@ export const it = {
       emptyQueue: "Scaletta vuota. Il pubblico prenota dal telefono con il PIN {pin}.",
       dragToReorder: "Trascina per riordinare",
       badgeVideo: "video",
-      badgeNoAds: "senza pubblicità",
+      badgeDownloaded: "scaricato",
       downloading: "download…",
       downloadFailed: "Download fallito (partirà col player YouTube): {error}",
       downloadFailedHint: "— spesso si risolve caricando i cookies in 🔧 Tecnico → YouTube",
@@ -449,8 +462,8 @@ export const it = {
       sendToStage: "Manda sul palco",
       onStage: "▶ Sul palco",
       renameVideoTitle: "Rinomina il titolo del video",
-      downloadVideoTitle: "Scarica il video sul server: partirà senza pubblicità",
-      noAdsDownload: "no ads ⬇",
+      downloadVideoTitle: "Scarica il video sul server",
+      downloadBtn: "Scarica",
       removeFromQueueTitle: "Togli dalla scaletta",
       alreadySung: "✅ Già cantate ({n})",
       replay: "↻ Ripeti",
@@ -470,7 +483,8 @@ export const it = {
       queueError: "Errore coda",
       connectionFailed: "Connessione fallita",
       youtubeDownloading: "Download video in corso… {progress}%",
-      youtubeReady: "Video pronto: si avvia senza pubblicità",
+      youtubeReady: "Video pronto",
+      videoDownloadedBadge: "🎬 video scaricato",
       youtubeDownloadFailed: "Download video fallito (si userà l'embed) — {error}",
       youtubeErrorFallback: "errore",
       inQueue: "In coda",
@@ -504,6 +518,8 @@ export const it = {
       "Quando l'host avvia un brano sul proiettore, i testi MIDI si aggiornano qui in sync; per i video usa Connetti in basso.",
     lastScore: "Ultimo punteggio",
     projectorTimeout: "Proiettore non risponde. Riprova.",
+    embedNoSync:
+      "Non puoi seguire il testo dal tuo dispositivo per questa canzone, avvicinati ad un display del locale per leggere il testo.",
   },
 } as const;
 

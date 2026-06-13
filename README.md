@@ -62,20 +62,22 @@ L'app è su `http://<host>:8083`.
 ### Display cantante (`/display` senza `eventId`)
 
 - Dopo join pubblico (PIN + nickname): segue il proiettore **senza audio**
-- Testi MIDI sincronizzati in tempo reale; video YouTube con pulsante **Connetti** (sync one-shot + play/pausa dal proiettore)
+- Testi MIDI sincronizzati in tempo reale
+- Video YouTube **scaricati** sul server: pulsante **Connetti** (sync one-shot + play/pausa dal proiettore)
+- Video solo in **embed** (non scaricati): il cantante vede un avviso a usare un display del locale; niente sync sul telefono
 
 ### Console host (`/admin`)
 
 - **Conduzione**: scaletta live (drag-and-drop), approvazione richieste, «Ora sul palco», voti, concludi esibizione
 - **Prenota** (host): aggiunge brani in coda per un partecipante, nickname libero o **Tutti Insieme** (canto di gruppo)
 - **Coda**: anticipa/posticipa, elimina, avvia sul palco, bis (↻ ripeti)
-- **Video YouTube**: download «no ads» con yt-dlp; rinomina titolo; fallback embed se download fallisce
+- **Video YouTube**: download sul server con yt-dlp (pulsante **Scarica** in scaletta); opzione **download automatico** per serata in Tecnico; rinomina titolo; fallback embed se download fallisce
 - **Tonalità e voce (MIDI)**:
   - Selettore **muta traccia** (voce guida, di solito traccia 4) — effetto live sul display
   - Selettore **tonalità in semitoni** (−12…+12) — effetto live sul display
 - **Tonalità (video scaricati)**: stesso selettore semitoni; audio processato con SoundTouchJS
 - **Catalogo MIDI**: upload singolo, import massivo da ZIP, metadati da file (.mid), genere, modifica brani
-- **Tecnico**: banco soundfont (Gleitz/SF2), **cookies YouTube** per yt-dlp (carica/rimuovi), debug MIDI (super admin)
+- **Tecnico**: banco soundfont (Gleitz/SF2), **download automatico video YouTube** per serata, **cookies YouTube** per yt-dlp (carica/rimuovi), debug MIDI (super admin)
 - Stati serata: **In preparazione** (default alla creazione) → **Prenotazioni aperte** → **Conclusa** (pulizia video yt)
 
 ### Backend
@@ -138,6 +140,10 @@ Se YouTube blocca ricerca o download dal server, carica un `cookies.txt` Netscap
 1. File personale dell'admin della serata (`storage/cookies/admin-{id}.txt`)
 2. `YOUTUBE_COOKIES_PATH` (env o volume Docker)
 3. File condiviso legacy `storage/cookies/youtube.txt`
+
+### Download automatico video YouTube
+
+In **`/admin` → Tecnico → Download video YouTube** puoi attivare per ogni serata il download automatico: quando un video entra in scaletta (approvazione richiesta o prenotazione host), parte il download sul server. Resta disponibile il pulsante **Scarica** manuale in Conduzione.
 
 ## Aggiungere canzoni MIDI
 

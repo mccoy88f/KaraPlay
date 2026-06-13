@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { connectSoundTouchVideo, type SoundTouchVideoSession } from "../lib/soundtouchVideo";
 import type { DisplayTransportTickFn } from "../lib/displayTransport";
+import { useI18n } from "../i18n/context";
 import { STAGE_SHELL_CLASS, StageStartOverlay } from "./StageStartOverlay";
 import { StageTransportBar } from "./StageTransportBar";
 
@@ -19,10 +20,11 @@ type Props = {
 };
 
 /**
- * Video YouTube pre-scaricato sul server: riproduzione senza pubblicità.
+ * Video YouTube pre-scaricato sul server: riprodotto dal display principale.
  * Audio via SoundTouchJS (stessa logica tonalità dei brani MIDI).
  */
 export function YoutubeVideo({ bookingId, title, transposeSemitones = 0, onEnded, onTransportTick }: Props) {
+  const { t } = useI18n();
   const videoUrl = `${base}/api/media/yt/${encodeURIComponent(bookingId)}`;
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const sessionRef = useRef<SoundTouchVideoSession | null>(null);
@@ -206,7 +208,7 @@ export function YoutubeVideo({ bookingId, title, transposeSemitones = 0, onEnded
           title={title}
           badges={
             <span className="rounded-full border border-emerald-500/40 bg-emerald-500/10 px-3 py-1 text-xs uppercase tracking-widest text-emerald-200/90">
-              🎬 video scaricato · senza pubblicità
+              {t("admin.display.videoDownloadedBadge")}
             </span>
           }
           error={error}

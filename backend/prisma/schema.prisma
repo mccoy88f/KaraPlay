@@ -47,6 +47,8 @@ model Event {
   createdAt        DateTime    @default(now())
   /** Banco GM per playback MIDI (fluid_r3 | musyng_kite | fatboy). */
   soundfontBankId  String      @default("fluid_r3")
+  /** Se true, i video YouTube in scaletta (APPROVED) partono in download automatico. */
+  youtubeAutoDownload Boolean    @default(false)
   /** Admin (o superadmin) che gestisce la serata. */
   adminId          String?
 
