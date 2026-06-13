@@ -94,14 +94,29 @@ export function JoinHome() {
         )}
 
         <footer className="mt-auto border-t border-zinc-800/80 pt-6 text-sm text-zinc-500">
-          <nav className="flex flex-wrap gap-x-4 gap-y-2 text-zinc-500">
-            <Link to="/join/enter" className="hover:text-white">
-              Cambia nickname
-            </Link>
-            <span aria-hidden="true" className="text-zinc-700">
-              ·
-            </span>
-            <Link to="/admin" className="hover:text-white">
+          <nav className="flex items-center justify-between gap-4">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+              <Link to="/join/enter" className="hover:text-white">
+                Cambia nickname
+              </Link>
+              {token && event && (
+                <>
+                  <span aria-hidden="true" className="text-zinc-700">
+                    ·
+                  </span>
+                  <Link
+                    to="/display"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="hover:text-white"
+                    title="Testi e video sincronizzati al proiettore, senza audio"
+                  >
+                    Gobbo
+                  </Link>
+                </>
+              )}
+            </div>
+            <Link to="/admin" className="shrink-0 hover:text-white">
               Admin
             </Link>
           </nav>

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { connectSoundTouchVideo, type SoundTouchVideoSession } from "../lib/soundtouchVideo";
+import type { DisplayTransportTickFn } from "../lib/displayTransport";
 import { STAGE_SHELL_CLASS, StageStartOverlay } from "./StageStartOverlay";
 import { StageTransportBar } from "./StageTransportBar";
 
@@ -14,18 +15,21 @@ type Props = {
   transposeSemitones?: number;
   /** Fine del video: il display la usa per chiudere l'esibizione da solo. */
   onEnded?: () => void;
+  onTransportTick?: DisplayTransportTickFn;
 };
 
 /**
  * Video YouTube pre-scaricato sul server: riproduzione senza pubblicità.
  * Audio via SoundTouchJS (stessa logica tonalità dei brani MIDI).
  */
-export function YoutubeVideo({ bookingId, title, transposeSemitones = 0, onEnded }: Props) {
+export function YoutubeVideo({ bookingId, title, transposeSemitones = 0, onEnded, onTransportTick }: Props) {
   const videoUrl = `${base}/api/media/yt/${encodeURIComponent(bookingId)}`;
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const sessionRef = useRef<SoundTouchVideoSession | null>(null);
   const transposeRef = useRef(transposeSemitones);
   const hideControlsTimerRef = useRef<number | null>(null);
+  const onTransportTickRef = useRef(onTransportTick);
+  onTransportTickRef.current = onTransportTick;
 
   const [started, setStarted] = useState(false);
   const [paused, setPaused] = useState(false);
@@ -83,6 +87,12 @@ export function YoutubeVideo({ bookingId, title, transposeSemitones = 0, onEnded
       setPaused(true);
     }
     bumpControlsVisibility();
+    if (started) {
+      onTransportTickRef.current?.(
+        { sec: video.currentTime, playing: started, paused: video.paused },
+        true
+      );
+    }
   }
 
   function handleFrameClick(e: React.MouseEvent) {
@@ -119,11 +129,29 @@ export function YoutubeVideo({ bookingId, title, transposeSemitones = 0, onEnded
       onEnded?.();
     };
     const onLoaded = () => setDurationSec(Number.isFinite(video.duration) ? video.duration : 0);
-    const onTime = () => setTransportSec(video.currentTime);
-    const onPlay = () => setPaused(false);
+    const emitTransport = (immediate = false) => {
+      if (!started) return;
+      onTransportTickRef.current?.(
+        {
+          sec: video.currentTime,
+          playing: started,
+          paused: video.paused,
+        },
+        immediate
+      );
+    };
+    const onTime = () => {
+      setTransportSec(video.currentTime);
+      emitTransport(false);
+    };
+    const onPlay = () => {
+      setPaused(false);
+      emitTransport(true);
+    };
     const onPause = () => {
       if (video.currentTime >= Math.max(0, video.duration - 0.25)) return;
       setPaused(true);
+      emitTransport(true);
     };
 
     video.addEventListener("loadedmetadata", onLoaded);
@@ -138,7 +166,7 @@ export function YoutubeVideo({ bookingId, title, transposeSemitones = 0, onEnded
       video.removeEventListener("pause", onPause);
       video.removeEventListener("ended", handleEnded);
     };
-  }, [onEnded]);
+  }, [onEnded, started]);
 
   useEffect(() => {
     return () => {

@@ -104,6 +104,8 @@ type Props = {
   mutedTrack?: number | null;
   /** Trasposizione in semitoni (-12…+12). Modificabile live dalla console admin. */
   transposeSemitones?: number;
+  /** Posizione riproduzione (schermo sala → follower). */
+  onTransportTick?: (state: { sec: number; playing: boolean; paused: boolean }) => void;
 };
 
 export function KaraokePlayer({
@@ -116,6 +118,7 @@ export function KaraokePlayer({
   onEnded,
   mutedTrack,
   transposeSemitones = 0,
+  onTransportTick,
 }: Props) {
   const bankId = soundfontBankId ?? getSoundfontBank(null).id;
   const bank = getSoundfontBank(bankId);
@@ -158,6 +161,8 @@ export function KaraokePlayer({
   const gleitzPlayersRef = useRef<Map<number, Awaited<ReturnType<typeof Soundfont.instrument>>>>(new Map());
   /** Riprogramma le note Gleitz dal punto corrente (trasposizione/mute immediati). */
   const gleitzPumpRef = useRef<{ rescheduleFromNow: () => void } | null>(null);
+  const onTransportTickRef = useRef(onTransportTick);
+  onTransportTickRef.current = onTransportTick;
 
   useEffect(() => {
     let cancelled = false;
@@ -645,7 +650,9 @@ export function KaraokePlayer({
     const source = timeSourceRef.current;
     if (!source) return;
     const tick = () => {
-      setTransportSec(source());
+      const sec = source();
+      setTransportSec(sec);
+      onTransportTickRef.current?.({ sec, playing: true, paused });
       rafRef.current = requestAnimationFrame(tick);
     };
     rafRef.current = requestAnimationFrame(tick);

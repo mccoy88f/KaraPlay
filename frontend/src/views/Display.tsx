@@ -12,11 +12,11 @@ import {
   apiGetLivePerformance,
   apiGetQueue,
   apiGetVotes,
-  getStoredEvent,
   type LeaderboardEntry,
 } from "../api/client";
 import type { SoundfontBankId } from "../lib/soundfontBanks";
 import { getSoundfontBank } from "../lib/soundfontBanks";
+import { DisplayFollower } from "./DisplayFollower";
 
 type SongPayload = {
   id: string;
@@ -82,8 +82,15 @@ function fireScoreConfetti() {
 
 export function Display() {
   const [searchParams] = useSearchParams();
-  const eventId = searchParams.get("eventId") ?? getStoredEvent()?.id ?? null;
+  const eventIdParam = searchParams.get("eventId");
+  if (!eventIdParam) {
+    return <DisplayFollower />;
+  }
+  return <DisplayPresenter eventId={eventIdParam} />;
+}
 
+/** Schermo sala del presentatore: richiede ?eventId= e login admin. */
+function DisplayPresenter({ eventId }: { eventId: string }) {
   // Lo schermo sala è del presentatore: serve il login admin e la serata deve essere sua.
   const [adminToken, setAdminToken] = useState<string | null>(() => localStorage.getItem(ADMIN_TOKEN_KEY));
   const [auth, setAuth] = useState<"checking" | "login" | "denied" | "ok">("checking");
@@ -108,6 +115,32 @@ export function Display() {
   const socketRef = useRef<Socket | null>(null);
   const liveRef = useRef<PerfPayload | null>(null);
   liveRef.current = live;
+  const lastTransportEmitRef = useRef(0);
+  const transportSnapshotRef = useRef({ sec: 0, playing: false, paused: false });
+
+  const emitDisplayTransport = useCallback(
+    (state: { sec: number; playing: boolean; paused: boolean }, immediate = false) => {
+      transportSnapshotRef.current = state;
+      const perfId = liveRef.current?.performance.id;
+      if (!perfId) return;
+      const now = Date.now();
+      if (!immediate && now - lastTransportEmitRef.current < 350) return;
+      lastTransportEmitRef.current = now;
+      socketRef.current?.emit("display:transport", {
+        performanceId: perfId,
+        ...state,
+      });
+    },
+    []
+  );
+
+  const emitDisplayTransportImmediate = useCallback((performanceId: string) => {
+    const snap = transportSnapshotRef.current;
+    socketRef.current?.emit("display:transport", {
+      performanceId,
+      ...snap,
+    });
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -345,6 +378,12 @@ export function Display() {
         setLeaderboard(payload.entries ?? []);
       });
 
+      socket.on("display:sync-request", (payload: { performanceId?: string }) => {
+        const perfId = payload?.performanceId;
+        if (!perfId || perfId !== liveRef.current?.performance.id) return;
+        emitDisplayTransportImmediate(perfId);
+      });
+
       // la console può cambiare la traccia silenziata anche a brano in corso
       socket.on("song:muted-track", (payload: { songId: string; mutedTrack: number | null }) => {
         setLive((prev) =>
@@ -383,23 +422,6 @@ export function Display() {
       socketRef.current = null;
     };
   }, [eventId]);
-
-  if (!eventId) {
-    return (
-      <div className="kg-page-bg flex min-h-dvh flex-col items-center justify-center px-6 text-center">
-        <p className="font-display text-xs uppercase tracking-[0.4em] text-amber-300/90">Display</p>
-        <h1 className="font-display mt-6 text-3xl font-semibold text-white">Serata non selezionata</h1>
-        <p className="mt-4 max-w-lg text-zinc-400">
-          Apri questa pagina dopo un join dal telefono oppure aggiungi{" "}
-          <code className="rounded-lg bg-zinc-800 px-2 py-0.5 font-mono text-fuchsia-300">?eventId=…</code>{" "}
-          all&apos;URL.
-        </p>
-        <Link to="/join" className="mt-8 text-sm text-fuchsia-400 hover:underline">
-          Torna al pubblico
-        </Link>
-      </div>
-    );
-  }
 
   if (auth === "checking") {
     return (
@@ -559,6 +581,7 @@ export function Display() {
                   mutedTrack={live.song.mutedTrack}
                   transposeSemitones={live.song.transposeSemitones ?? 0}
                   soundfontBankId={sfBank}
+                  onTransportTick={emitDisplayTransport}
                   onEnded={() => void autoEnd()}
                 />
               ) : live.song?.source === "YOUTUBE" && live.booking?.id ? (
@@ -567,6 +590,7 @@ export function Display() {
                   bookingId={live.booking.id}
                   title={live.song.title}
                   transposeSemitones={live.song.transposeSemitones ?? 0}
+                  onTransportTick={emitDisplayTransport}
                   onEnded={() => void autoEnd()}
                 />
               ) : live.booking?.ytUrl ? (
@@ -574,6 +598,7 @@ export function Display() {
                   key={live.performance.id}
                   ytUrl={live.booking.ytUrl}
                   title={live.booking.ytTitle ?? live.song?.title ?? "Brano YouTube"}
+                  onTransportTick={emitDisplayTransport}
                   onEnded={() => void autoEnd()}
                 />
               ) : (

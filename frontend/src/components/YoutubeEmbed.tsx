@@ -1,11 +1,18 @@
 import { useEffect, useRef, useState } from "react";
+import type { DisplayTransportTickFn } from "../lib/displayTransport";
 import { STAGE_SHELL_CLASS, StageStartOverlay } from "./StageStartOverlay";
+
+type YTPlayerWithTime = YTPlayer & {
+  getCurrentTime: () => number;
+  getPlayerState: () => number;
+};
 
 type Props = {
   ytUrl: string;
   title: string;
   /** Fine del video: il display la usa per chiudere l'esibizione da solo. */
   onEnded?: () => void;
+  onTransportTick?: DisplayTransportTickFn;
 };
 
 /** Estrae l'id video dalle forme comuni di URL YouTube (watch, youtu.be, shorts, embed). */
@@ -41,7 +48,7 @@ type YTNamespace = {
       events?: { onStateChange?: (e: { data: number }) => void };
     }
   ) => YTPlayer;
-  PlayerState: { ENDED: number };
+  PlayerState: { ENDED: number; PLAYING: number; PAUSED: number };
 };
 
 declare global {
@@ -52,7 +59,7 @@ declare global {
 }
 
 let ytApiPromise: Promise<YTNamespace> | null = null;
-function loadYouTubeApi(): Promise<YTNamespace> {
+export function loadYouTubeApi(): Promise<YTNamespace> {
   if (ytApiPromise) return ytApiPromise;
   ytApiPromise = new Promise((resolve) => {
     if (window.YT?.Player) {
@@ -75,17 +82,40 @@ function loadYouTubeApi(): Promise<YTNamespace> {
  * Riproduce il video YouTube direttamente (l'audio è già nel video, niente download).
  * Parte dopo un click e riempe tutto lo spazio disponibile; a fine video chiama onEnded.
  */
-export function YoutubeEmbed({ ytUrl, title, onEnded }: Props) {
+export function YoutubeEmbed({ ytUrl, title, onEnded, onTransportTick }: Props) {
   const [started, setStarted] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const onEndedRef = useRef(onEnded);
   onEndedRef.current = onEnded;
+  const onTransportTickRef = useRef(onTransportTick);
+  onTransportTickRef.current = onTransportTick;
+  const playerRef = useRef<YTPlayerWithTime | null>(null);
   const videoId = youtubeVideoId(ytUrl);
+
+  const startedRef = useRef(started);
+  startedRef.current = started;
+
+  const emitTransport = (immediate = false) => {
+    const player = playerRef.current;
+    if (!player || !startedRef.current) return;
+    try {
+      const sec = player.getCurrentTime();
+      const state = player.getPlayerState();
+      const playing = state === 1;
+      const paused = state === 2;
+      onTransportTickRef.current?.(
+        { sec, playing: startedRef.current && (playing || paused), paused },
+        immediate
+      );
+    } catch {
+      /* player non pronto */
+    }
+  };
 
   useEffect(() => {
     if (!started || !videoId) return;
     let cancelled = false;
-    let player: YTPlayer | undefined;
+    let player: YTPlayerWithTime | undefined;
     void loadYouTubeApi().then((YTApi) => {
       const host = containerRef.current?.firstElementChild as HTMLElement | null;
       if (cancelled || !host) return;
@@ -98,12 +128,20 @@ export function YoutubeEmbed({ ytUrl, title, onEnded }: Props) {
         events: {
           onStateChange: (e) => {
             if (e.data === YTApi.PlayerState.ENDED) onEndedRef.current?.();
+            if (
+              e.data === YTApi.PlayerState.PLAYING ||
+              e.data === YTApi.PlayerState.PAUSED
+            ) {
+              emitTransport(true);
+            }
           },
         },
-      });
+      }) as YTPlayerWithTime;
+      playerRef.current = player;
     });
     return () => {
       cancelled = true;
+      playerRef.current = null;
       try {
         player?.destroy();
       } catch {
@@ -111,6 +149,12 @@ export function YoutubeEmbed({ ytUrl, title, onEnded }: Props) {
       }
     };
   }, [started, videoId]);
+
+  useEffect(() => {
+    if (!started || !onTransportTick) return;
+    const timer = window.setInterval(() => emitTransport(false), 350);
+    return () => window.clearInterval(timer);
+  }, [started, onTransportTick]);
 
   if (!videoId) {
     return (
