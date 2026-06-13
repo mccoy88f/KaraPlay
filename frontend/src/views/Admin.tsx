@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { LiveConsole } from "../components/admin/LiveConsole";
+import { AdminBookSection } from "../components/admin/AdminBookSection";
 import { AccountSection } from "../components/admin/AccountSection";
 import { MidiCatalogSection } from "../components/admin/MidiCatalogSection";
 import { MidiDebugSection } from "../components/admin/MidiDebugSection";
@@ -14,7 +15,7 @@ export function Admin() {
   const [token, setToken] = useState<string | null>(() => localStorage.getItem(ADMIN_TOKEN_KEY));
   const [me, setMe] = useState<AdminMe | null>(null);
   const [checking, setChecking] = useState(true);
-  const [tab, setTab] = useState<"console" | "catalog" | "account" | "tech">("console");
+  const [tab, setTab] = useState<"console" | "book" | "catalog" | "account" | "tech">("console");
 
   // login form
   const [username, setUsername] = useState("");
@@ -189,6 +190,19 @@ export function Admin() {
             <button
               type="button"
               role="tab"
+              aria-selected={tab === "book"}
+              onClick={() => setTab("book")}
+              className={
+                tab === "book"
+                  ? "rounded-lg bg-fuchsia-600 px-4 py-2 font-medium text-white"
+                  : "rounded-lg px-4 py-2 text-zinc-400 hover:text-white"
+              }
+            >
+              🎵 Prenota
+            </button>
+            <button
+              type="button"
+              role="tab"
               aria-selected={tab === "catalog"}
               onClick={() => setTab("catalog")}
               className={
@@ -232,6 +246,8 @@ export function Admin() {
 
         <main className="mt-6">
           {tab === "console" && <LiveConsole authHeader={authHeader} isSuper={isSuper} />}
+
+          {tab === "book" && <AdminBookSection authHeader={authHeader} />}
 
           {tab === "catalog" && <MidiCatalogSection authHeader={authHeader} />}
 

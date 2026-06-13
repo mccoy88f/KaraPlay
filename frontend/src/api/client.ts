@@ -1,3 +1,5 @@
+import type { QueueBookingDto } from "../lib/queueDisplay";
+
 const base = import.meta.env.VITE_API_URL ?? "";
 
 export type JoinResponse = {
@@ -48,6 +50,18 @@ export function getStoredNickname(): string | null {
   return localStorage.getItem(NICKNAME_KEY);
 }
 
+/** Id utente guest dal JWT (solo per UI, non per sicurezza). */
+export function getStoredUserId(): string | null {
+  const token = getStoredToken();
+  if (!token) return null;
+  try {
+    const payload = JSON.parse(atob(token.split(".")[1] ?? "")) as { sub?: string };
+    return typeof payload.sub === "string" ? payload.sub : null;
+  } catch {
+    return null;
+  }
+}
+
 export function getStoredToken(): string | null {
   return localStorage.getItem(TOKEN_KEY);
 }
@@ -77,7 +91,7 @@ export async function apiGetQueue(eventId: string) {
   if (!res.ok) {
     throw new Error((data as { error?: string }).error ?? "Coda non disponibile");
   }
-  return data as { queue: unknown[]; soundfontBankId?: string };
+  return data as { queue: QueueBookingDto[]; soundfontBankId?: string };
 }
 
 export type LivePerformancePayload = {
@@ -351,6 +365,61 @@ export async function apiBookYoutube(eventId: string, ytUrl: string, ytTitle?: s
       Authorization: `Bearer ${token}`,
     },
     body: JSON.stringify({ ytUrl, ...(ytTitle ? { ytTitle } : {}) }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error((data as { error?: string }).error ?? "Prenotazione fallita");
+  }
+}
+
+export type EventParticipant = { id: string; nickname: string };
+
+export async function apiAdminGetParticipants(
+  eventId: string,
+  authHeader: () => Record<string, string>
+): Promise<EventParticipant[]> {
+  const res = await fetch(`${base}/api/admin/events/${encodeURIComponent(eventId)}/participants`, {
+    headers: { ...authHeader() },
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error((data as { error?: string }).error ?? "Partecipanti non disponibili");
+  }
+  return ((data as { participants?: EventParticipant[] }).participants ?? []) as EventParticipant[];
+}
+
+export async function apiAdminBookMidi(
+  eventId: string,
+  songId: string,
+  assign: { userId?: string; nickname?: string },
+  authHeader: () => Record<string, string>
+): Promise<void> {
+  const res = await fetch(`${base}/api/admin/events/${encodeURIComponent(eventId)}/bookings`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeader() },
+    body: JSON.stringify({ songId, ...assign }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error((data as { error?: string }).error ?? "Prenotazione fallita");
+  }
+}
+
+export async function apiAdminBookYoutube(
+  eventId: string,
+  ytUrl: string,
+  assign: { userId?: string; nickname?: string; ytTitle?: string },
+  authHeader: () => Record<string, string>
+): Promise<void> {
+  const res = await fetch(`${base}/api/admin/events/${encodeURIComponent(eventId)}/bookings`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeader() },
+    body: JSON.stringify({
+      ytUrl,
+      ...(assign.ytTitle ? { ytTitle: assign.ytTitle } : {}),
+      ...(assign.userId ? { userId: assign.userId } : {}),
+      ...(assign.nickname ? { nickname: assign.nickname } : {}),
+    }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {

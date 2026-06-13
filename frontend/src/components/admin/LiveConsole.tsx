@@ -6,7 +6,7 @@ import { getSoundfontBank, isSf2BankId } from "../../lib/soundfontBanks";
 import { youtubeVideoId } from "../YoutubeEmbed";
 
 const base = import.meta.env.VITE_API_URL ?? "";
-const ADMIN_EVENT_KEY = "karaoke_admin_event";
+import { ADMIN_EVENT_KEY } from "../../lib/adminEvent";
 
 type AdminEvent = {
   id: string;

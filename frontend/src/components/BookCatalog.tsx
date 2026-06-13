@@ -1,14 +1,18 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   apiBookMidi,
   apiBookYoutube,
+  apiGetQueue,
   apiSearchSongs,
   apiSearchYoutube,
   getStoredEvent,
+  getStoredUserId,
   type SongDto,
   type YoutubeSearchResult,
 } from "../api/client";
+import type { QueueBookingDto } from "../lib/queueDisplay";
 import { MidiPreviewButton } from "./MidiPreviewButton";
+import { QueueOverview } from "./QueueOverview";
 
 const MIDI_PAGE = 40;
 const YT_PAGE = 10;
@@ -60,8 +64,29 @@ function SongCoverThumb({ url }: { url?: string | null }) {
   );
 }
 
-export function BookCatalog() {
-  const event = getStoredEvent();
+export type BookCatalogCoreProps = {
+  eventId: string;
+  eventName: string;
+  viewerUserId?: string | null;
+  assignBar?: ReactNode;
+  bookMidi: (songId: string, songTitle: string) => Promise<void>;
+  bookYoutube: (url: string, title: string) => Promise<void>;
+  onBooked?: () => void;
+  midiBookedMessage?: (title: string) => string;
+  ytBookedMessage?: (title: string) => string;
+};
+
+export function BookCatalogCore({
+  eventId,
+  eventName,
+  viewerUserId,
+  assignBar,
+  bookMidi,
+  bookYoutube,
+  onBooked,
+  midiBookedMessage = (title) => `«${title}» aggiunta in coda.`,
+  ytBookedMessage = (title) => `«${title}» aggiunta in coda.`,
+}: BookCatalogCoreProps) {
   const [q, setQ] = useState("");
   const [songs, setSongs] = useState<SongDto[]>([]);
   const [songsHasMore, setSongsHasMore] = useState(false);
@@ -71,13 +96,14 @@ export function BookCatalog() {
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
+  const [queue, setQueue] = useState<QueueBookingDto[]>([]);
+  const [queueLoading, setQueueLoading] = useState(true);
+
   const [ytResults, setYtResults] = useState<YoutubeSearchResult[]>([]);
   const [ytHasMore, setYtHasMore] = useState(false);
   const [ytSearching, setYtSearching] = useState(false);
   const [ytLoadingMore, setYtLoadingMore] = useState(false);
-  /** Query dell'ultima ricerca YouTube completata (i risultati restano finché non cambia). */
   const [ytQueryDone, setYtQueryDone] = useState<string | null>(null);
-  /** Id del video con l'anteprima aperta (una alla volta). */
   const [ytPreviewId, setYtPreviewId] = useState<string | null>(null);
 
   const songsAbortRef = useRef<AbortController | null>(null);
@@ -85,9 +111,26 @@ export function BookCatalog() {
   const songsQueryRef = useRef("");
   const ytQueryRef = useRef("");
 
+  const loadQueue = useCallback(async () => {
+    try {
+      const data = await apiGetQueue(eventId);
+      setQueue(data.queue ?? []);
+    } catch {
+      /* la scaletta si aggiorna al prossimo tentativo */
+    } finally {
+      setQueueLoading(false);
+    }
+  }, [eventId]);
+
+  useEffect(() => {
+    setQueueLoading(true);
+    void loadQueue();
+    const timer = window.setInterval(() => void loadQueue(), 15000);
+    return () => window.clearInterval(timer);
+  }, [loadQueue]);
+
   const loadSongs = useCallback(
     async (query: string, offset: number, append: boolean) => {
-      if (!event) return;
       if (append) {
         if (query !== songsQueryRef.current) return;
       } else {
@@ -103,7 +146,7 @@ export function BookCatalog() {
       if (!append) setErr(null);
 
       try {
-        const data = await apiSearchSongs(event.id, query || undefined, MIDI_PAGE, offset, signal);
+        const data = await apiSearchSongs(eventId, query || undefined, MIDI_PAGE, offset, signal);
         if (query !== songsQueryRef.current) return;
         setSongs((prev) => (append ? [...prev, ...data.songs] : data.songs));
         setSongsHasMore(data.hasMore);
@@ -120,25 +163,22 @@ export function BookCatalog() {
         }
       }
     },
-    [event]
+    [eventId]
   );
 
   useEffect(() => {
-    if (!event) return;
     const query = stripYoutubeFlags(q.trim());
     const delay = query ? 400 : 0;
     const timer = window.setTimeout(() => {
       void loadSongs(query, 0, false);
     }, delay);
     return () => window.clearTimeout(timer);
-  }, [event?.id, q, loadSongs]);
+  }, [eventId, q, loadSongs]);
 
-  // i risultati YouTube valgono solo per la ricerca che li ha prodototti
   const showYt = ytQueryDone !== null && ytQueryDone === q.trim();
 
   async function search(e?: React.FormEvent) {
     e?.preventDefault();
-    if (!event) return;
     const query = q.trim();
     if (query.length < 2) return;
 
@@ -152,7 +192,7 @@ export function BookCatalog() {
     setYtSearching(true);
     setYtPreviewId(null);
     try {
-      const data = await apiSearchYoutube(event.id, query, YT_PAGE, 0, signal);
+      const data = await apiSearchYoutube(eventId, query, YT_PAGE, 0, signal);
       if (query !== ytQueryRef.current) return;
       setYtResults(data.results);
       setYtHasMore(data.hasMore);
@@ -175,7 +215,6 @@ export function BookCatalog() {
   }
 
   async function loadMoreYoutube() {
-    if (!event) return;
     const query = q.trim();
     if (!showYt || !ytHasMore || ytLoadingMore || ytSearching || query.length < 2) return;
     if (query !== ytQueryRef.current) return;
@@ -183,7 +222,7 @@ export function BookCatalog() {
     setYtLoadingMore(true);
     setErr(null);
     try {
-      const data = await apiSearchYoutube(event.id, query, YT_PAGE, ytResults.length);
+      const data = await apiSearchYoutube(eventId, query, YT_PAGE, ytResults.length);
       if (query !== ytQueryRef.current) return;
       setYtResults((prev) => [...prev, ...data.results]);
       setYtHasMore(data.hasMore);
@@ -203,13 +242,14 @@ export function BookCatalog() {
   }, []);
 
   async function book(song: SongDto) {
-    if (!event) return;
     setErr(null);
     setMsg(null);
     setBookingId(song.id);
     try {
-      await apiBookMidi(event.id, song.id);
-      setMsg(`«${song.title}» aggiunta in coda.`);
+      await bookMidi(song.id, song.title);
+      setMsg(midiBookedMessage(song.title));
+      await loadQueue();
+      onBooked?.();
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Errore");
     } finally {
@@ -218,13 +258,14 @@ export function BookCatalog() {
   }
 
   async function bookYt(r: YoutubeSearchResult) {
-    if (!event) return;
     setErr(null);
     setMsg(null);
     setBookingId(r.id);
     try {
-      await apiBookYoutube(event.id, r.url, r.title);
-      setMsg(`«${r.title}» richiesta: in coda dopo l'ok di chi presenta.`);
+      await bookYoutube(r.url, r.title);
+      setMsg(ytBookedMessage(r.title));
+      await loadQueue();
+      onBooked?.();
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Errore");
     } finally {
@@ -232,27 +273,23 @@ export function BookCatalog() {
     }
   }
 
-  if (!event) {
-    return (
-      <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-100">
-        Nessuna serata in memoria. Vai a <strong>Entra nella serata</strong> con PIN e nickname.
-      </div>
-    );
-  }
-
   const showLoadMore = songsHasMore || (showYt && ytHasMore);
 
   return (
     <div className="p-5 md:p-6">
+      <QueueOverview queue={queue} viewerUserId={viewerUserId} loading={queueLoading} />
+
       <h2 className="font-display text-lg font-semibold text-white">Prenota un brano</h2>
       <p className="mt-1 text-sm text-zinc-400">
-        Serata: <span className="text-zinc-200">{event.name}</span>
+        Serata: <span className="text-zinc-200">{eventName}</span>
       </p>
+
+      {assignBar && <div className="mt-4">{assignBar}</div>}
 
       <form className="mt-4 flex gap-2" onSubmit={(e) => void search(e)}>
         <input
           className="min-w-0 flex-1 rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 outline-none ring-fuchsia-500/30 focus:ring-2"
-          placeholder="Titolo, artista, file, genere, anno… (-karaoke su YouTube)"
+          placeholder="Titolo, artista, file, genere, anno…"
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
@@ -268,10 +305,8 @@ export function BookCatalog() {
       <p className="mt-2 text-xs text-zinc-600">
         Il catalogo <span className="rounded border border-amber-500/40 bg-amber-500/10 px-1 text-amber-200/90">MIDI</span>{" "}
         si filtra mentre scrivi; con <strong className="text-zinc-400">Cerca</strong> arrivano anche i video{" "}
-        <span className="rounded border border-red-500/40 bg-red-500/10 px-1 text-red-200/90">YouTube</span>{" "}
-        (si aggiunge «karaoke»; scrivi <code className="rounded bg-zinc-800 px-1">-karaoke</code> per
-        escluderlo). Usa{" "}
-        <strong className="text-zinc-400">Carica altri</strong> per pagine aggiuntive.
+        <span className="rounded border border-red-500/40 bg-red-500/10 px-1 text-red-200/90">YouTube</span>.
+        Usa <strong className="text-zinc-400">Carica altri</strong> per pagine aggiuntive.
       </p>
 
       {loading && songs.length === 0 && <p className="mt-3 text-sm text-zinc-500">Caricamento catalogo…</p>}
@@ -359,7 +394,6 @@ export function BookCatalog() {
               )}
             </li>
           ))}
-
       </ul>
 
       {showLoadMore && (
@@ -397,5 +431,34 @@ export function BookCatalog() {
         <p className="mt-4 text-center text-sm text-zinc-500">Nessun risultato, né MIDI né YouTube.</p>
       )}
     </div>
+  );
+}
+
+export function BookCatalog() {
+  const storedEvent = getStoredEvent();
+  const eventId = storedEvent?.id ?? null;
+  const viewerUserId = getStoredUserId();
+
+  if (!storedEvent || !eventId) {
+    return (
+      <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-100">
+        Nessuna serata in memoria. Vai a <strong>Entra nella serata</strong> con PIN e nickname.
+      </div>
+    );
+  }
+
+  return (
+    <BookCatalogCore
+      eventId={eventId}
+      eventName={storedEvent.name}
+      viewerUserId={viewerUserId}
+      bookMidi={async (songId) => {
+        await apiBookMidi(eventId, songId);
+      }}
+      bookYoutube={async (url, title) => {
+        await apiBookYoutube(eventId, url, title);
+      }}
+      ytBookedMessage={(title) => `«${title}» richiesta: in coda dopo l'ok di chi presenta.`}
+    />
   );
 }

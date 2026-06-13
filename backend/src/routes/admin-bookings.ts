@@ -1,10 +1,153 @@
 import type { FastifyInstance } from "fastify";
+import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
 import { canManageEvent, requireAdmin } from "../middleware/admin.js";
 import type { JwtPayload } from "../types/jwt.js";
 import { emitQueueUpdate } from "../socket/emit.js";
 
+const adminCreateBookingSchema = z
+  .object({
+    userId: z.string().cuid().optional(),
+    nickname: z.string().min(1).max(40).optional(),
+    songId: z.string().cuid().optional(),
+    ytUrl: z.string().url().optional(),
+    ytTitle: z.string().max(300).optional(),
+  })
+  .refine(
+    (b) => {
+      const hasSong = b.songId !== undefined;
+      const hasYt = b.ytUrl !== undefined;
+      return hasSong !== hasYt;
+    },
+    { message: "Specifica songId (MIDI) oppure ytUrl (YouTube), non entrambi" }
+  )
+  .refine((b) => Boolean(b.userId?.trim() || b.nickname?.trim()), {
+    message: "Specifica a chi assegnare (partecipante o nickname)",
+  });
+
+async function resolveAssigneeUserId(
+  eventId: string,
+  userId: string | undefined,
+  nickname: string | undefined
+): Promise<string | null> {
+  if (userId?.trim()) {
+    const u = await prisma.user.findUnique({ where: { id: userId.trim() }, select: { id: true } });
+    return u?.id ?? null;
+  }
+  const nick = nickname?.trim();
+  if (!nick) return null;
+  const recent = await prisma.booking.findFirst({
+    where: { eventId, user: { nickname: nick } },
+    orderBy: { createdAt: "desc" },
+    select: { userId: true },
+  });
+  if (recent) return recent.userId;
+  const created = await prisma.user.create({ data: { nickname: nick } });
+  return created.id;
+}
+
 export async function registerAdminBookingRoutes(fastify: FastifyInstance): Promise<void> {
+  fastify.get<{ Params: { eventId: string } }>(
+    "/admin/events/:eventId/participants",
+    { preHandler: [requireAdmin] },
+    async (request, reply) => {
+      const { eventId } = request.params;
+      if (!(await canManageEvent(request.user as JwtPayload, eventId))) {
+        return reply.code(403).send({ error: "Questa serata è gestita da un altro admin" });
+      }
+      const bookings = await prisma.booking.findMany({
+        where: { eventId },
+        select: { user: { select: { id: true, nickname: true } } },
+        orderBy: { createdAt: "desc" },
+      });
+      const byId = new Map<string, { id: string; nickname: string }>();
+      for (const b of bookings) byId.set(b.user.id, b.user);
+      const participants = [...byId.values()].sort((a, b) =>
+        a.nickname.localeCompare(b.nickname, "it", { sensitivity: "base" })
+      );
+      return reply.send({ participants });
+    }
+  );
+
+  fastify.post<{ Params: { eventId: string } }>(
+    "/admin/events/:eventId/bookings",
+    { preHandler: [requireAdmin] },
+    async (request, reply) => {
+      const { eventId } = request.params;
+      if (!(await canManageEvent(request.user as JwtPayload, eventId))) {
+        return reply.code(403).send({ error: "Questa serata è gestita da un altro admin" });
+      }
+
+      const event = await prisma.event.findUnique({ where: { id: eventId } });
+      if (!event) {
+        return reply.code(404).send({ error: "Serata non trovata" });
+      }
+      if (event.status !== "OPEN" && event.status !== "LIVE") {
+        return reply.code(403).send({
+          error: `Prenotazioni chiuse: la serata è in stato «${event.status}».`,
+        });
+      }
+
+      const parsed = adminCreateBookingSchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.code(400).send({ error: "Dati non validi", details: parsed.error.flatten() });
+      }
+
+      const body = parsed.data;
+      const assigneeId = await resolveAssigneeUserId(eventId, body.userId, body.nickname);
+      if (!assigneeId) {
+        return reply.code(400).send({ error: "Partecipante non valido" });
+      }
+
+      const last = await prisma.booking.findFirst({
+        where: { eventId },
+        orderBy: { position: "desc" },
+        select: { position: true },
+      });
+      const position = (last?.position ?? 0) + 1;
+
+      if (body.songId) {
+        const song = await prisma.song.findUnique({ where: { id: body.songId } });
+        if (!song) {
+          return reply.code(404).send({ error: "Canzone non trovata" });
+        }
+        const booking = await prisma.booking.create({
+          data: {
+            eventId,
+            userId: assigneeId,
+            songId: song.id,
+            position,
+            status: "APPROVED",
+          },
+          include: {
+            user: { select: { id: true, nickname: true } },
+            song: true,
+          },
+        });
+        await emitQueueUpdate(eventId);
+        return reply.code(201).send(booking);
+      }
+
+      const booking = await prisma.booking.create({
+        data: {
+          eventId,
+          userId: assigneeId,
+          songId: null,
+          ytUrl: body.ytUrl,
+          ytTitle: body.ytTitle ?? null,
+          position,
+          status: "APPROVED",
+        },
+        include: {
+          user: { select: { id: true, nickname: true } },
+          song: true,
+        },
+      });
+      await emitQueueUpdate(eventId);
+      return reply.code(201).send(booking);
+    }
+  );
+
   /** Rinomina il titolo mostrato per una prenotazione video (e la Song scaricata, se c'è). */
   fastify.put<{ Params: { id: string }; Body: { ytTitle?: string } }>(
     "/admin/bookings/:id/title",
