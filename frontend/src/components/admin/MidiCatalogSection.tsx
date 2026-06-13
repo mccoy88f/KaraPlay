@@ -1,5 +1,6 @@
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { extractMidiMeta } from "../../lib/midiMeta";
+import { useI18n } from "../../i18n/context";
 import { MidiBulkImport } from "./MidiBulkImport";
 
 const base = import.meta.env.VITE_API_URL ?? "";
@@ -39,6 +40,7 @@ function CoverPreview({ url }: { url: string }) {
 }
 
 export function MidiCatalogSection({ authHeader }: Props) {
+  const { t } = useI18n();
   const [songs, setSongs] = useState<SongDto[]>([]);
   const [title, setTitle] = useState("");
   const [artist, setArtist] = useState("");
@@ -59,6 +61,8 @@ export function MidiCatalogSection({ authHeader }: Props) {
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [catalogQuery, setCatalogQuery] = useState("");
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [deleteBusy, setDeleteBusy] = useState(false);
   /** Ultimi valori precompilati dal file: si sovrascrivono solo se l'utente non li ha toccati. */
   const autoFillRef = useRef<{ title: string; artist: string; year: string }>({ title: "", artist: "", year: "" });
   const editPanelRef = useRef<HTMLFormElement>(null);
@@ -77,6 +81,93 @@ export function MidiCatalogSection({ authHeader }: Props) {
         (s.year != null && String(s.year).includes(q))
     );
   }, [songs, catalogQuery]);
+
+  const filteredIds = useMemo(() => filteredSongs.map((s) => s.id), [filteredSongs]);
+  const allFilteredSelected =
+    filteredIds.length > 0 && filteredIds.every((id) => selectedIds.has(id));
+  const someFilteredSelected = filteredIds.some((id) => selectedIds.has(id));
+
+  function toggleSelect(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelectAllFiltered() {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (allFilteredSelected) {
+        for (const id of filteredIds) next.delete(id);
+      } else {
+        for (const id of filteredIds) next.add(id);
+      }
+      return next;
+    });
+  }
+
+  async function deleteSongIds(ids: string[]) {
+    if (ids.length === 0) return;
+    setDeleteBusy(true);
+    setErr(null);
+    setMsg(null);
+    try {
+      const res = await fetch(`${base}/api/admin/songs/bulk-delete`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeader() },
+        body: JSON.stringify({ ids }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { deleted?: number; errors?: string[]; error?: string };
+      if (!res.ok) {
+        setErr(data.error ?? t("admin.catalog.deleteFailed"));
+        return;
+      }
+      const deleted = data.deleted ?? 0;
+      const failed = data.errors?.length ?? 0;
+      if (deleted === 1 && ids.length === 1) {
+        const title = songs.find((s) => s.id === ids[0])?.title ?? "";
+        setMsg(t("admin.catalog.deletedOne", { title }));
+      } else if (deleted > 0 && failed === 0) {
+        setMsg(t("admin.catalog.deletedMany", { n: deleted }));
+      } else if (deleted > 0) {
+        setMsg(t("admin.catalog.deletePartial", { deleted, failed }));
+        if (data.errors?.length) setErr(data.errors.slice(0, 3).join(" · "));
+      } else {
+        setErr(data.errors?.[0] ?? t("admin.catalog.deleteFailed"));
+      }
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        for (const id of ids) next.delete(id);
+        return next;
+      });
+      if (editing && ids.includes(editing.id)) setEditing(null);
+      await loadSongs();
+    } finally {
+      setDeleteBusy(false);
+    }
+  }
+
+  function confirmDeleteOne(s: SongDto) {
+    if (!window.confirm(t("admin.catalog.deleteConfirmOne", { title: s.title }))) return;
+    void deleteSongIds([s.id]);
+  }
+
+  function confirmDeleteSelected() {
+    const ids = [...selectedIds].filter((id) => filteredIds.includes(id));
+    if (ids.length === 0) return;
+    if (!window.confirm(t("admin.catalog.deleteConfirmSelected", { n: ids.length }))) return;
+    void deleteSongIds(ids);
+  }
+
+  function confirmDeleteAll() {
+    const ids = catalogQuery.trim() ? filteredIds : songs.map((s) => s.id);
+    if (ids.length === 0) return;
+    const key = catalogQuery.trim() ? "admin.catalog.deleteConfirmFiltered" : "admin.catalog.deleteConfirmAll";
+    if (!window.confirm(t(key, { n: ids.length }))) return;
+    void deleteSongIds(ids);
+  }
 
   /** Alla scelta del file, titolo e artista si leggono dai metadati MIDI/.kar (modificabili). */
   async function onMidiPicked(f: File | null) {
@@ -107,7 +198,7 @@ export function MidiCatalogSection({ authHeader }: Props) {
         return cur;
       });
       if (meta.title || meta.artist) {
-        setMsg("Titolo e artista letti dal file: controllali e correggi se serve.");
+        setMsg(t("admin.catalog.readFromFile"));
       }
     } catch {
       /* file illeggibile: i campi restano come sono */
@@ -155,34 +246,36 @@ export function MidiCatalogSection({ authHeader }: Props) {
         };
         if (seq !== lookupSeqRef.current) return;
         if (!res.ok) {
-          setErr(data.error ?? "Lookup non disponibile");
+          setErr(data.error ?? t("admin.catalog.lookupFailed"));
           return;
         }
         onResult(data);
         if (data.genre || data.year || data.coverUrl) {
           setMsg(
-            `Trovato online: ${[data.genre, data.year, data.coverUrl ? "copertina" : null].filter(Boolean).join(" · ")}`
+            t("admin.catalog.foundOnline", {
+              details: [data.genre, data.year, data.coverUrl ? t("admin.catalog.coverShort") : null]
+                .filter(Boolean)
+                .join(" · "),
+            })
           );
         }
       } finally {
         if (seq === lookupSeqRef.current) setBusy(false);
       }
     },
-    [authHeader]
+    [authHeader, t]
   );
 
   async function retrieveEditMeta() {
     if (!edit.title.trim()) {
-      setErr("Inserisci almeno il titolo prima di cercare online.");
+      setErr(t("admin.catalog.retrieveNeedTitle"));
       return;
     }
     const fillGenre = !edit.genre.trim();
     const fillYear = !edit.year.trim();
     const fillCover = !edit.coverUrl.trim();
     if (!fillGenre && !fillYear && !fillCover) {
-      setMsg(
-        "Genere, anno e copertina sono già compilati. Svuota i campi da correggere e riprova con titolo e artista aggiornati."
-      );
+      setMsg(t("admin.catalog.retrieveFull"));
       return;
     }
     setMsg(null);
@@ -283,10 +376,10 @@ export function MidiCatalogSection({ authHeader }: Props) {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setErr((data as { error?: string }).error ?? "Salvataggio fallito");
+        setErr((data as { error?: string }).error ?? t("admin.catalog.saveFailed"));
         return;
       }
-      setMsg(`«${edit.title.trim()}» aggiornato.`);
+      setMsg(t("admin.catalog.updated", { title: edit.title.trim() }));
       const songId = editing.id;
       setEditing(null);
       await loadSongs();
@@ -299,7 +392,7 @@ export function MidiCatalogSection({ authHeader }: Props) {
   async function upload(e: React.FormEvent) {
     e.preventDefault();
     if (!title.trim() || !artist.trim() || !midiFile) {
-      setErr("Titolo, artista e file .mid sono obbligatori");
+      setErr(t("admin.catalog.requiredFields"));
       return;
     }
     setErr(null);
@@ -322,10 +415,10 @@ export function MidiCatalogSection({ authHeader }: Props) {
     const data = await res.json().catch(() => ({}));
     setLoading(false);
     if (!res.ok) {
-      setErr((data as { error?: string }).error ?? "Upload fallito");
+      setErr((data as { error?: string }).error ?? t("admin.catalog.uploadFailed"));
       return;
     }
-    setMsg(`Caricata: ${(data as SongDto).title}`);
+    setMsg(t("admin.catalog.uploaded", { title: (data as SongDto).title }));
     setTitle("");
     setArtist("");
     setLanguage("");
@@ -340,17 +433,13 @@ export function MidiCatalogSection({ authHeader }: Props) {
 
   return (
     <section className="kg-card mt-8 p-6 md:p-8">
-      <h2 className="font-display text-lg font-semibold text-white">Il tuo catalogo MIDI karaoke</h2>
-      <p className="mt-2 text-sm text-zinc-400">
-        I brani che carichi qui sono visibili al pubblico di <strong className="text-zinc-300">tutte le tue
-        serate</strong> (e solo delle tue). File <code className="rounded bg-zinc-800 px-1">.mid</code> +
-        opzionale <code className="rounded bg-zinc-800 px-1">.lrc</code> per il testo sincronizzato.
-      </p>
+      <h2 className="font-display text-lg font-semibold text-white">{t("admin.catalog.title")}</h2>
+      <p className="mt-2 text-sm text-zinc-400">{t("admin.catalog.intro")}</p>
 
       <form onSubmit={(e) => void upload(e)} className="mt-6 flex flex-col gap-4">
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="flex flex-col gap-1 text-sm">
-            <span className="text-zinc-400">Titolo</span>
+            <span className="text-zinc-400">{t("admin.catalog.titleLabel")}</span>
             <input
               className="kg-input"
               value={title}
@@ -359,7 +448,7 @@ export function MidiCatalogSection({ authHeader }: Props) {
             />
           </label>
           <label className="flex flex-col gap-1 text-sm">
-            <span className="text-zinc-400">Artista</span>
+            <span className="text-zinc-400">{t("admin.catalog.artistLabel")}</span>
             <input
               className="kg-input"
               value={artist}
@@ -370,21 +459,21 @@ export function MidiCatalogSection({ authHeader }: Props) {
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="flex flex-col gap-1 text-sm">
-            <span className="text-zinc-400">Lingua (opzionale)</span>
+            <span className="text-zinc-400">{t("admin.catalog.languageLabel")}</span>
             <input
               className="kg-input"
               value={language}
               onChange={(e) => setLanguage(e.target.value)}
-              placeholder="it"
+              placeholder={t("admin.catalog.languagePlaceholder")}
             />
           </label>
           <label className="flex flex-col gap-1 text-sm">
-            <span className="text-zinc-400">Anno (opzionale, letto dal file se presente)</span>
+            <span className="text-zinc-400">{t("admin.catalog.yearLabel")}</span>
             <input
               className="kg-input"
               value={year}
               onChange={(e) => setYear(e.target.value)}
-              placeholder="es. 2024"
+              placeholder={t("admin.catalog.yearPlaceholder")}
               inputMode="numeric"
               maxLength={4}
             />
@@ -392,36 +481,34 @@ export function MidiCatalogSection({ authHeader }: Props) {
         </div>
         <div className="flex flex-wrap items-end gap-3">
           <label className="flex min-w-48 flex-1 flex-col gap-1 text-sm">
-            <span className="text-zinc-400">Genere (opzionale)</span>
+            <span className="text-zinc-400">{t("admin.catalog.genreLabel")}</span>
             <input
               className="kg-input"
               value={genre}
               onChange={(e) => setGenre(e.target.value)}
-              placeholder="es. Pop, Rock…"
+              placeholder={t("admin.catalog.genrePlaceholder")}
             />
           </label>
           {lookupBusy && (
-            <p className="pb-2.5 text-xs text-cyan-300/80">Cerco metadati online…</p>
+            <p className="pb-2.5 text-xs text-cyan-300/80">{t("admin.catalog.lookupBusy")}</p>
           )}
         </div>
         <div className="flex flex-wrap items-start gap-3">
           <label className="flex min-w-0 flex-1 flex-col gap-1 text-sm">
-            <span className="text-zinc-400">Copertina (URL, opzionale)</span>
+            <span className="text-zinc-400">{t("admin.catalog.coverLabel")}</span>
             <input
               className="kg-input font-mono text-xs"
               value={coverUrl}
               onChange={(e) => setCoverUrl(e.target.value)}
-              placeholder="https://… (da iTunes se trovata)"
+              placeholder={t("admin.catalog.coverPlaceholder")}
             />
           </label>
           <CoverPreview url={coverUrl} />
         </div>
-        <p className="text-xs text-zinc-500">
-          Genere, anno e copertina si cercano da titolo e artista (iTunes) se i campi sono vuoti.
-        </p>
+        <p className="text-xs text-zinc-500">{t("admin.catalog.metaHint")}</p>
         <div className="flex flex-wrap gap-4">
           <label className="cursor-pointer rounded-lg border border-cyan-500/40 bg-cyan-500/10 px-4 py-2 text-sm font-medium text-cyan-100 hover:bg-cyan-500/20">
-            File MIDI (.mid)
+            {t("admin.catalog.midiFile")}
             <input
               type="file"
               accept=".mid,audio/midi"
@@ -430,7 +517,7 @@ export function MidiCatalogSection({ authHeader }: Props) {
             />
           </label>
           <label className="cursor-pointer rounded-lg border border-zinc-600 px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-800">
-            LRC (opzionale)
+            {t("admin.catalog.lrcFile")}
             <input
               type="file"
               accept=".lrc,text/plain"
@@ -439,15 +526,15 @@ export function MidiCatalogSection({ authHeader }: Props) {
             />
           </label>
         </div>
-        {midiFile && <p className="text-xs text-zinc-500">MIDI: {midiFile.name}</p>}
-        {lrcFile && <p className="text-xs text-zinc-500">LRC: {lrcFile.name}</p>}
+        {midiFile && <p className="text-xs text-zinc-500">{t("admin.catalog.midiSelected", { name: midiFile.name })}</p>}
+        {lrcFile && <p className="text-xs text-zinc-500">{t("admin.catalog.lrcSelected", { name: lrcFile.name })}</p>}
 
         <button
           type="submit"
           disabled={loading}
           className="w-fit rounded-xl bg-cyan-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-cyan-500 disabled:opacity-40"
         >
-          {loading ? "Caricamento…" : "Carica nel catalogo"}
+          {loading ? t("admin.catalog.uploading") : t("admin.catalog.uploadBtn")}
         </button>
       </form>
 
@@ -457,33 +544,72 @@ export function MidiCatalogSection({ authHeader }: Props) {
       <div className="mt-8">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h3 className="font-display text-base font-semibold text-white">Cerca nel catalogo</h3>
+            <h3 className="font-display text-base font-semibold text-white">{t("admin.catalog.searchTitle")}</h3>
             <p className="mt-1 text-xs text-zinc-500">
-              {songs.length} {songs.length === 1 ? "brano" : "brani"}
-              {catalogQuery.trim() ? ` · ${filteredSongs.length} risultati` : ""}
+              {songs.length === 1
+                ? t("admin.catalog.songCountOne")
+                : t("admin.catalog.songCount", { n: songs.length })}
+              {catalogQuery.trim()
+                ? ` · ${t("admin.catalog.results", { n: filteredSongs.length })}`
+                : ""}
+              {selectedIds.size > 0 ? ` · ${t("admin.catalog.selected", { n: selectedIds.size })}` : ""}
             </p>
           </div>
           <label className="flex min-w-[min(100%,20rem)] flex-1 flex-col gap-1 text-sm sm:max-w-md">
-            <span className="sr-only">Cerca nel catalogo</span>
+            <span className="sr-only">{t("admin.catalog.searchTitle")}</span>
             <input
               className="kg-input"
               value={catalogQuery}
               onChange={(e) => setCatalogQuery(e.target.value)}
-              placeholder="Titolo, artista, file, genere…"
+              placeholder={t("admin.catalog.searchPlaceholder")}
             />
           </label>
         </div>
+
+        {songs.length > 0 && (
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={deleteBusy || !someFilteredSelected}
+              onClick={() => confirmDeleteSelected()}
+              className="rounded-lg border border-red-500/50 px-3 py-1.5 text-xs font-medium text-red-200 hover:bg-red-950/40 disabled:opacity-40"
+            >
+              {deleteBusy ? t("admin.catalog.deleting") : t("admin.catalog.deleteSelected")}
+            </button>
+            <button
+              type="button"
+              disabled={deleteBusy || filteredIds.length === 0}
+              onClick={() => confirmDeleteAll()}
+              className="rounded-lg border border-red-500/40 px-3 py-1.5 text-xs text-red-300/90 hover:bg-red-950/30 disabled:opacity-40"
+            >
+              {catalogQuery.trim() ? t("admin.catalog.deleteFiltered") : t("admin.catalog.deleteAll")}
+            </button>
+          </div>
+        )}
 
         <div className="mt-4 overflow-x-auto">
           <table className="w-full text-left text-sm text-zinc-300">
             <thead>
               <tr className="border-b border-zinc-800 text-zinc-500">
-                <th className="py-2 pr-4">Titolo</th>
-                <th className="py-2 pr-4">Artista</th>
-                <th className="py-2 pr-4">Anno</th>
-                <th className="py-2 pr-4">Genere</th>
-                <th className="py-2 pr-4">File</th>
-                <th className="py-2 pr-4">LRC</th>
+                <th className="w-10 py-2 pr-2">
+                  <input
+                    type="checkbox"
+                    checked={allFilteredSelected}
+                    ref={(el) => {
+                      if (el) el.indeterminate = someFilteredSelected && !allFilteredSelected;
+                    }}
+                    onChange={toggleSelectAllFiltered}
+                    disabled={filteredSongs.length === 0}
+                    aria-label={t("admin.catalog.selectAll")}
+                    className="accent-fuchsia-500"
+                  />
+                </th>
+                <th className="py-2 pr-4">{t("admin.catalog.colTitle")}</th>
+                <th className="py-2 pr-4">{t("admin.catalog.colArtist")}</th>
+                <th className="py-2 pr-4">{t("admin.catalog.colYear")}</th>
+                <th className="py-2 pr-4">{t("admin.catalog.colGenre")}</th>
+                <th className="py-2 pr-4">{t("admin.catalog.colFile")}</th>
+                <th className="py-2 pr-4">{t("admin.catalog.colLrc")}</th>
                 <th className="py-2"></th>
               </tr>
             </thead>
@@ -497,6 +623,15 @@ export function MidiCatalogSection({ authHeader }: Props) {
                   }}
                   className={`border-b border-zinc-800/80 ${editing?.id === s.id ? "bg-fuchsia-500/10" : ""}`}
                 >
+                  <td className="py-2 pr-2">
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.has(s.id)}
+                      onChange={() => toggleSelect(s.id)}
+                      aria-label={s.title}
+                      className="accent-fuchsia-500"
+                    />
+                  </td>
                   <td className="py-2 pr-4 font-medium text-white">{s.title}</td>
                   <td className="py-2 pr-4">{s.artist}</td>
                   <td className="py-2 pr-4">{s.year ?? "—"}</td>
@@ -504,30 +639,41 @@ export function MidiCatalogSection({ authHeader }: Props) {
                   <td className="max-w-[14rem] truncate py-2 pr-4 font-mono text-xs text-zinc-500" title={s.fileName ?? undefined}>
                     {s.fileName ?? "—"}
                   </td>
-                  <td className="py-2 pr-4">{s.lrcPath ? "sì" : "—"}</td>
+                  <td className="py-2 pr-4">{s.lrcPath ? t("admin.catalog.lrcYes") : "—"}</td>
                   <td className="py-2">
-                    <button
-                      type="button"
-                      title="Modifica titolo, artista, anno, genere"
-                      onClick={() => startEdit(s)}
-                      className="rounded border border-zinc-700 px-2 py-1 text-xs text-zinc-300 hover:bg-zinc-800"
-                    >
-                      ✏️
-                    </button>
+                    <div className="flex gap-1">
+                      <button
+                        type="button"
+                        title={t("admin.catalog.editTitle")}
+                        onClick={() => startEdit(s)}
+                        className="rounded border border-zinc-700 px-2 py-1 text-xs text-zinc-300 hover:bg-zinc-800"
+                      >
+                        ✏️
+                      </button>
+                      <button
+                        type="button"
+                        title={t("admin.catalog.deleteOne")}
+                        disabled={deleteBusy}
+                        onClick={() => confirmDeleteOne(s)}
+                        className="rounded border border-red-500/40 px-2 py-1 text-xs text-red-200 hover:bg-red-950/40 disabled:opacity-40"
+                      >
+                        🗑
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
               {songs.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="py-6 text-center text-zinc-500">
-                    Nessuna canzone in catalogo
+                  <td colSpan={8} className="py-6 text-center text-zinc-500">
+                    {t("admin.catalog.empty")}
                   </td>
                 </tr>
               )}
               {songs.length > 0 && filteredSongs.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="py-6 text-center text-zinc-500">
-                    Nessun risultato per «{catalogQuery.trim()}»
+                  <td colSpan={8} className="py-6 text-center text-zinc-500">
+                    {t("admin.catalog.noResults", { q: catalogQuery.trim() })}
                   </td>
                 </tr>
               )}
@@ -542,36 +688,36 @@ export function MidiCatalogSection({ authHeader }: Props) {
           onSubmit={(e) => void saveEdit(e)}
           className="mt-6 scroll-mt-6 rounded-xl border border-fuchsia-500/30 bg-zinc-950/60 p-4"
         >
-          <p className="text-sm font-medium text-fuchsia-200">Modifica «{editing.title}»</p>
+          <p className="text-sm font-medium text-fuchsia-200">{t("admin.catalog.editPanel", { title: editing.title })}</p>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             <label className="flex flex-col gap-1 text-sm">
-              <span className="text-zinc-400">Titolo</span>
+              <span className="text-zinc-400">{t("admin.catalog.titleLabel")}</span>
               <input className="kg-input" value={edit.title} onChange={(e) => setEdit({ ...edit, title: e.target.value })} required />
             </label>
             <label className="flex flex-col gap-1 text-sm">
-              <span className="text-zinc-400">Artista</span>
+              <span className="text-zinc-400">{t("admin.catalog.artistLabel")}</span>
               <input className="kg-input" value={edit.artist} onChange={(e) => setEdit({ ...edit, artist: e.target.value })} required />
             </label>
             <label className="flex flex-col gap-1 text-sm">
-              <span className="text-zinc-400">Anno</span>
+              <span className="text-zinc-400">{t("admin.catalog.colYear")}</span>
               <input className="kg-input" value={edit.year} onChange={(e) => setEdit({ ...edit, year: e.target.value })} inputMode="numeric" maxLength={4} />
             </label>
             <label className="flex flex-col gap-1 text-sm">
-              <span className="text-zinc-400">Genere</span>
+              <span className="text-zinc-400">{t("admin.catalog.colGenre")}</span>
               <input className="kg-input" value={edit.genre} onChange={(e) => setEdit({ ...edit, genre: e.target.value })} />
             </label>
             <label className="flex flex-col gap-1 text-sm">
-              <span className="text-zinc-400">Lingua</span>
-              <input className="kg-input" value={edit.language} onChange={(e) => setEdit({ ...edit, language: e.target.value })} placeholder="it" />
+              <span className="text-zinc-400">{t("admin.catalog.editLanguageLabel")}</span>
+              <input className="kg-input" value={edit.language} onChange={(e) => setEdit({ ...edit, language: e.target.value })} placeholder={t("admin.catalog.languagePlaceholder")} />
             </label>
             <label className="flex flex-col gap-1 text-sm sm:col-span-2">
-              <span className="text-zinc-400">Copertina (URL)</span>
+              <span className="text-zinc-400">{t("admin.catalog.editCoverLabel")}</span>
               <div className="flex flex-wrap items-start gap-3">
                 <input
                   className="kg-input min-w-0 flex-1 font-mono text-xs"
                   value={edit.coverUrl}
                   onChange={(e) => setEdit({ ...edit, coverUrl: e.target.value })}
-                  placeholder="https://… lascia vuoto per nessuna"
+                  placeholder={t("admin.catalog.editCoverPlaceholder")}
                 />
                 <CoverPreview url={edit.coverUrl} />
               </div>
@@ -584,18 +730,16 @@ export function MidiCatalogSection({ authHeader }: Props) {
               onClick={() => void retrieveEditMeta()}
               className="rounded-lg border border-cyan-500/40 bg-cyan-500/10 px-4 py-2 text-sm font-medium text-cyan-100 hover:bg-cyan-500/20 disabled:opacity-40"
             >
-              {editLookupBusy ? "Cerco online…" : "Recupera informazioni"}
+              {editLookupBusy ? t("admin.catalog.retrieving") : t("admin.catalog.retrieveMeta")}
             </button>
-            <p className="text-xs text-zinc-500">
-              Da titolo e artista (iTunes): copertina, genere e anno solo se vuoti.
-            </p>
+            <p className="text-xs text-zinc-500">{t("admin.catalog.retrieveHint")}</p>
           </div>
           <div className="mt-4 flex gap-2">
             <button type="submit" disabled={editBusy || !edit.title.trim() || !edit.artist.trim()} className="rounded-lg bg-fuchsia-600 px-4 py-2 text-sm font-semibold text-white hover:bg-fuchsia-500 disabled:opacity-40">
-              {editBusy ? "Salvo…" : "Salva modifiche"}
+              {editBusy ? t("admin.catalog.saving") : t("admin.catalog.saveEdit")}
             </button>
             <button type="button" onClick={cancelEdit} className="rounded-lg border border-zinc-700 px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-800">
-              Annulla
+              {t("admin.catalog.cancel")}
             </button>
           </div>
         </form>

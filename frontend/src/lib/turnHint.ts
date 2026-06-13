@@ -28,13 +28,19 @@ export function turnHintForUser(queue: QueueBookingDto[], userId: string | null 
   return null;
 }
 
-export function turnHintTitle(hint: TurnHint): string {
-  if (hint.kind === "now") return "È il tuo turno!";
-  return `Dopo «${bookingLabel(hint.previous)}» tocca a te`;
+export function turnHintTitle(
+  hint: TurnHint,
+  t: (key: string, params?: Record<string, string | number>) => string
+): string {
+  if (hint.kind === "now") return t("turn.nowTitle");
+  return t("turn.afterTitle", { title: bookingLabel(hint.previous) });
 }
 
-export function turnHintBody(hint: TurnHint): string {
+export function turnHintBody(
+  hint: TurnHint,
+  t: (key: string, params?: Record<string, string | number>) => string
+): string {
   const song = bookingLabel(hint.booking);
-  if (hint.kind === "now") return `${song} — vai sul palco!`;
-  return `Il tuo brano: ${song}`;
+  if (hint.kind === "now") return t("turn.nowBody", { song });
+  return t("turn.afterBody", { song });
 }

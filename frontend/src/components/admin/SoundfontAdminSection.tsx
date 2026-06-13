@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useI18n } from "../../i18n/context";
 import { SoundfontSelect } from "../SoundfontSelect";
 import { ADMIN_EVENT_KEY } from "../../lib/adminEvent";
 import type { SoundfontBankId } from "../../lib/soundfontBanks";
@@ -32,6 +33,7 @@ type Props = {
 };
 
 export function SoundfontAdminSection({ authHeader, isSuper }: Props) {
+  const { t } = useI18n();
   const [events, setEvents] = useState<AdminEvent[]>([]);
   const [eventId, setEventId] = useState<string | null>(() => localStorage.getItem(ADMIN_EVENT_KEY));
   const [sf2Files, setSf2Files] = useState<Sf2File[]>([]);
@@ -52,9 +54,9 @@ export function SoundfontAdminSection({ authHeader, isSuper }: Props) {
       const data = await res.json().catch(() => ({}));
       if (res.ok) setEvents(((data as { events: AdminEvent[] }).events ?? []));
     } catch {
-      setErr("Serate non disponibili.");
+      setErr(t("admin.soundfont.eventsUnavailable"));
     }
-  }, [authHeader]);
+  }, [authHeader, t]);
 
   const loadSf2Files = useCallback(async () => {
     try {
@@ -111,7 +113,7 @@ export function SoundfontAdminSection({ authHeader, isSuper }: Props) {
     });
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
-      setErr((data as { error?: string }).error ?? "Operazione non riuscita");
+      setErr((data as { error?: string }).error ?? t("admin.live.operationFailed"));
       return false;
     }
     return true;
@@ -124,7 +126,7 @@ export function SoundfontAdminSection({ authHeader, isSuper }: Props) {
       body: JSON.stringify({ soundfontBankId: id }),
     });
     if (ok) {
-      setMsg("Timbro aggiornato: lo schermo sala userà questo suono.");
+      setMsg(t("admin.soundfont.updated"));
       await loadEvents();
     }
   }
@@ -139,12 +141,12 @@ export function SoundfontAdminSection({ authHeader, isSuper }: Props) {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setErr((data as { error?: string }).error ?? "Download suoni fallito");
+        setErr((data as { error?: string }).error ?? t("admin.soundfont.syncFailed"));
         return;
       }
       const d = data as { status?: { present: number; total: number; ready: boolean } };
       if (d.status) setSfStatus(d.status);
-      setMsg("Suoni pronti sul server.");
+      setMsg(t("admin.soundfont.syncOk"));
     } finally {
       setSfSyncing(false);
     }
@@ -154,7 +156,7 @@ export function SoundfontAdminSection({ authHeader, isSuper }: Props) {
     setErr(null);
     setMsg(null);
     if (file.size > SF2_MAX_UPLOAD_BYTES) {
-      setErr(`File troppo grande: ${formatMB(file.size)} (max ${SF2_MAX_UPLOAD_LABEL}).`);
+      setErr(t("admin.soundfont.fileTooLarge", { size: formatMB(file.size), max: SF2_MAX_UPLOAD_LABEL }));
       if (sf2InputRef.current) sf2InputRef.current.value = "";
       return;
     }
@@ -170,17 +172,17 @@ export function SoundfontAdminSection({ authHeader, isSuper }: Props) {
         setSf2UploadPct
       );
       if (status === 413) {
-        setErr(`File troppo grande (max ${SF2_MAX_UPLOAD_LABEL}).`);
+        setErr(t("admin.soundfont.fileTooLarge413", { max: SF2_MAX_UPLOAD_LABEL }));
         return;
       }
       if (!status || status >= 400) {
-        setErr(typeof data.error === "string" ? data.error : "Upload fallito");
+        setErr(typeof data.error === "string" ? data.error : t("admin.soundfont.uploadFailed"));
         return;
       }
-      setMsg(`SoundFont «${file.name}» caricato (${formatMB(file.size)}).`);
+      setMsg(t("admin.soundfont.uploaded", { name: file.name, size: formatMB(file.size) }));
       await loadSf2Files();
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "Upload fallito");
+      setErr(e instanceof Error ? e.message : t("admin.soundfont.uploadFailed"));
     } finally {
       setSf2Uploading(false);
       setSf2UploadPct(null);
@@ -189,33 +191,31 @@ export function SoundfontAdminSection({ authHeader, isSuper }: Props) {
   }
 
   async function deleteSf2(file: string) {
-    if (!window.confirm(`Eliminare «${file}» dal server?`)) return;
+    if (!window.confirm(t("admin.soundfont.deleteConfirm", { file }))) return;
     setErr(null);
     const ok = await adminFetch(`/admin/soundfonts/sf2/${encodeURIComponent(file)}`, { method: "DELETE" });
     if (ok) {
-      setMsg(`«${file}» eliminato.`);
+      setMsg(t("admin.soundfont.deleted", { file }));
       await loadSf2Files();
     }
   }
 
   return (
     <section className="kg-card p-5 md:p-6">
-      <h2 className="text-xs font-medium uppercase tracking-[0.25em] text-zinc-500">🎚 Suono delle basi MIDI</h2>
-      <p className="mt-2 text-sm text-zinc-400">
-        Timbro GM o SoundFont (.sf2) usato dal display per le basi MIDI della serata selezionata.
-      </p>
+      <h2 className="text-xs font-medium uppercase tracking-[0.25em] text-zinc-500">{t("admin.soundfont.title")}</h2>
+      <p className="mt-2 text-sm text-zinc-400">{t("admin.soundfont.intro")}</p>
 
       {err && <p className="mt-3 text-sm text-red-400">{err}</p>}
       {msg && <p className="mt-3 text-sm text-emerald-400">{msg}</p>}
 
       <label className="mt-4 flex max-w-md flex-col gap-1 text-sm">
-        <span className="text-zinc-400">Serata</span>
+        <span className="text-zinc-400">{t("admin.soundfont.eventLabel")}</span>
         <select
           className="kg-input"
           value={eventId ?? ""}
           onChange={(e) => setEventId(e.target.value || null)}
         >
-          <option value="">— scegli una serata —</option>
+          <option value="">{t("admin.soundfont.chooseEvent")}</option>
           {events.map((ev) => (
             <option key={ev.id} value={ev.id}>
               {ev.name} · PIN {ev.joinCode}
@@ -232,18 +232,18 @@ export function SoundfontAdminSection({ authHeader, isSuper }: Props) {
               onChange={(id) => void persistSoundfont(id)}
               sf2Files={sf2Files.map((f) => f.file)}
               id="tech-soundfont"
-              label="Timbro (banco sonoro)"
+              label={t("admin.soundfont.bankLabel")}
             />
             {!isSf2BankId(soundfontBankId) && sfStatus && (
               <p className="mt-2 text-xs text-zinc-400">
-                Suoni sul server:{" "}
+                {t("admin.soundfont.serverSounds")}{" "}
                 <span className="font-mono text-zinc-200">
                   {sfStatus.present}/{sfStatus.total}
                 </span>
                 {sfStatus.ready ? (
-                  <span className="ml-2 text-emerald-400/90">— pronti</span>
+                  <span className="ml-2 text-emerald-400/90">{t("admin.soundfont.ready")}</span>
                 ) : (
-                  <span className="ml-2 text-amber-400/90">— scaricali qui sotto (una volta sola)</span>
+                  <span className="ml-2 text-amber-400/90">{t("admin.soundfont.downloadHint")}</span>
                 )}
               </p>
             )}
@@ -255,20 +255,18 @@ export function SoundfontAdminSection({ authHeader, isSuper }: Props) {
                   onClick={() => void syncSoundfont()}
                   className="mt-3 rounded-lg border border-cyan-500/40 bg-cyan-500/15 px-3 py-2 text-sm text-cyan-100 hover:bg-cyan-500/25 disabled:opacity-40"
                 >
-                  {sfSyncing ? "Download in corso…" : "Scarica suoni sul server"}
+                  {sfSyncing ? t("admin.soundfont.syncing") : t("admin.soundfont.syncBtn")}
                 </button>
               ) : (
                 sfStatus &&
                 !sfStatus.ready && (
-                  <p className="mt-3 text-xs text-amber-300/90">
-                    Suoni non ancora sul server: chiedi al super admin di scaricarli.
-                  </p>
+                  <p className="mt-3 text-xs text-amber-300/90">{t("admin.soundfont.askSuperAdmin")}</p>
                 )
               ))}
           </div>
 
           <div className="rounded-lg border border-zinc-800 bg-zinc-950/60 p-3">
-            <p className="text-xs font-medium uppercase tracking-wider text-zinc-500">SoundFont personali (.sf2)</p>
+            <p className="text-xs font-medium uppercase tracking-wider text-zinc-500">{t("admin.soundfont.customTitle")}</p>
             <ul className="mt-2 space-y-1">
               {sf2Files.map((f) => (
                 <li key={f.file} className="flex items-center justify-between gap-2 text-sm text-zinc-300">
@@ -281,12 +279,12 @@ export function SoundfontAdminSection({ authHeader, isSuper }: Props) {
                       onClick={() => void deleteSf2(f.file)}
                       className="rounded border border-red-500/50 px-2 py-0.5 text-xs text-red-200 hover:bg-red-900/50"
                     >
-                      Elimina
+                      {t("admin.soundfont.delete")}
                     </button>
                   )}
                 </li>
               ))}
-              {sf2Files.length === 0 && <li className="text-xs text-zinc-600">Nessun file caricato.</li>}
+              {sf2Files.length === 0 && <li className="text-xs text-zinc-600">{t("admin.soundfont.noFiles")}</li>}
             </ul>
 
             {isSuper ? (
@@ -295,7 +293,7 @@ export function SoundfontAdminSection({ authHeader, isSuper }: Props) {
                   <span
                     className={`cursor-pointer rounded-lg border border-fuchsia-500/40 bg-fuchsia-500/15 px-3 py-2 text-sm text-fuchsia-100 hover:bg-fuchsia-500/25 ${sf2Uploading ? "pointer-events-none opacity-60" : ""}`}
                   >
-                    {sf2Uploading ? "Caricamento…" : "Carica .sf2"}
+                    {sf2Uploading ? t("admin.soundfont.uploading") : t("admin.soundfont.uploadBtn")}
                   </span>
                   <input
                     ref={sf2InputRef}
@@ -309,11 +307,11 @@ export function SoundfontAdminSection({ authHeader, isSuper }: Props) {
                     }}
                   />
                 </label>
-                <p className="text-xs text-zinc-600">Max {SF2_MAX_UPLOAD_LABEL} per file.</p>
+                <p className="text-xs text-zinc-600">{t("admin.soundfont.maxPerFile", { max: SF2_MAX_UPLOAD_LABEL })}</p>
                 {sf2Uploading && (
                   <div className="rounded-lg border border-zinc-800 bg-zinc-950/80 p-3">
                     <div className="flex items-center justify-between gap-2 text-xs text-zinc-400">
-                      <span>Upload in corso</span>
+                      <span>{t("admin.soundfont.uploadProgress")}</span>
                       <span className="font-mono tabular-nums text-fuchsia-300">{sf2UploadPct ?? 0}%</span>
                     </div>
                     <div className="mt-2 h-2.5 overflow-hidden rounded-full bg-zinc-800">
@@ -326,14 +324,14 @@ export function SoundfontAdminSection({ authHeader, isSuper }: Props) {
                 )}
               </div>
             ) : (
-              <p className="mt-3 text-xs text-zinc-600">Caricamento ed eliminazione gestiti dal super admin.</p>
+              <p className="mt-3 text-xs text-zinc-600">{t("admin.soundfont.superAdminOnly")}</p>
             )}
           </div>
         </div>
       )}
 
       {!event && events.length > 0 && (
-        <p className="mt-4 text-sm text-zinc-500">Seleziona una serata per scegliere il timbro MIDI.</p>
+        <p className="mt-4 text-sm text-zinc-500">{t("admin.soundfont.selectEventHint")}</p>
       )}
     </section>
   );

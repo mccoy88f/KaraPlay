@@ -5,6 +5,7 @@ import {
   apiAdminGetParticipants,
   type EventParticipant,
 } from "../../api/client";
+import { useI18n } from "../../i18n/context";
 import { ADMIN_EVENT_KEY } from "../../lib/adminEvent";
 import {
   getAdminSingerNickname,
@@ -32,6 +33,7 @@ type Props = {
 };
 
 export function AdminBookSection({ authHeader, adminUsername }: Props) {
+  const { t } = useI18n();
   const [events, setEvents] = useState<AdminEvent[]>([]);
   const [eventId, setEventId] = useState<string | null>(() => localStorage.getItem(ADMIN_EVENT_KEY));
   const [participants, setParticipants] = useState<EventParticipant[]>([]);
@@ -43,6 +45,7 @@ export function AdminBookSection({ authHeader, adminUsername }: Props) {
   const [err, setErr] = useState<string | null>(null);
 
   const event = events.find((e) => e.id === eventId) ?? null;
+  const groupLabel = t("admin.book.groupNickname");
 
   useEffect(() => {
     const saved = getAdminSingerNickname(adminUsername);
@@ -56,9 +59,9 @@ export function AdminBookSection({ authHeader, adminUsername }: Props) {
       const data = await res.json().catch(() => ({}));
       if (res.ok) setEvents(((data as { events: AdminEvent[] }).events ?? []));
     } catch {
-      setErr("Serate non disponibili.");
+      setErr(t("admin.book.eventsUnavailable"));
     }
-  }, [authHeader]);
+  }, [authHeader, t]);
 
   const loadParticipants = useCallback(async () => {
     if (!eventId) {
@@ -69,9 +72,9 @@ export function AdminBookSection({ authHeader, adminUsername }: Props) {
       const list = await apiAdminGetParticipants(eventId, authHeader);
       setParticipants(list);
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "Partecipanti non disponibili");
+      setErr(e instanceof Error ? e.message : t("admin.book.participantsUnavailable"));
     }
-  }, [eventId, authHeader]);
+  }, [eventId, authHeader, t]);
 
   useEffect(() => {
     void loadEvents();
@@ -97,16 +100,16 @@ export function AdminBookSection({ authHeader, adminUsername }: Props) {
   function resolveAssignee(): { userId?: string; nickname?: string } {
     if (assignMode === "custom") {
       const nick = customNickname.trim();
-      if (!nick) throw new Error("Scrivi un nickname personalizzato.");
+      if (!nick) throw new Error(t("admin.book.customNicknameRequired"));
       return { nickname: nick };
     }
     if (assignMode === "self") {
       const nick = selfNickname.trim();
-      if (!nick) throw new Error("Imposta il tuo nickname sul palco (campo sotto).");
+      if (!nick) throw new Error(t("admin.book.selfNicknameRequired"));
       return { nickname: nick };
     }
     if (assignMode === "participant") {
-      if (!assignUserId) throw new Error("Scegli un partecipante in sala.");
+      if (!assignUserId) throw new Error(t("admin.book.participantRequired"));
       return { userId: assignUserId };
     }
     return { nickname: GROUP_SINGER_NICKNAME };
@@ -118,14 +121,16 @@ export function AdminBookSection({ authHeader, adminUsername }: Props) {
     if (assignMode === "participant") {
       return participants.find((p) => p.id === assignUserId)?.nickname ?? "…";
     }
-    return GROUP_SINGER_NICKNAME;
+    return groupLabel;
   }
 
   if (events.length === 0 && !eventId) {
     return (
       <div className="kg-card p-6 text-sm text-zinc-400">
-        Crea o seleziona una serata dalla scheda <strong className="text-zinc-200">Conduzione</strong>, poi torna qui
-        per prenotare a nome di un partecipante o di <strong className="text-zinc-200">{GROUP_SINGER_NICKNAME}</strong>.
+        {t("admin.book.noEventHintPrefix")}{" "}
+        <strong className="text-zinc-200">{t("admin.book.consoleTab")}</strong>,{" "}
+        {t("admin.book.noEventHintSuffix")}{" "}
+        <strong className="text-zinc-200">{groupLabel}</strong>.
       </div>
     );
   }
@@ -136,13 +141,13 @@ export function AdminBookSection({ authHeader, adminUsername }: Props) {
 
       <div className="kg-card flex flex-wrap items-end gap-3 p-4">
         <label className="flex min-w-[min(100%,16rem)] flex-1 flex-col gap-1 text-sm">
-          <span className="text-zinc-400">Serata</span>
+          <span className="text-zinc-400">{t("admin.book.event")}</span>
           <select
             className="kg-input"
             value={eventId ?? ""}
             onChange={(e) => setEventId(e.target.value || null)}
           >
-            <option value="">— scegli —</option>
+            <option value="">{t("admin.book.chooseOption")}</option>
             {events.map((ev) => (
               <option key={ev.id} value={ev.id}>
                 {ev.name} ({ev.status})
@@ -160,9 +165,10 @@ export function AdminBookSection({ authHeader, adminUsername }: Props) {
             onBooked={() => void loadParticipants()}
             assignBar={
               <div className="rounded-xl border border-cyan-500/30 bg-cyan-500/5 p-4">
-                <p className="text-sm font-medium text-cyan-100">Assegna il brano a</p>
+                <p className="text-sm font-medium text-cyan-100">{t("admin.book.assignTitle")}</p>
                 <p className="mt-1 text-xs text-zinc-500">
-                  Prenotazione attiva: <span className="text-zinc-300">{assigneeLabel()}</span>
+                  {t("admin.book.activeBooking")}{" "}
+                  <span className="text-zinc-300">{assigneeLabel()}</span>
                 </p>
 
                 <div className="mt-3 flex flex-wrap gap-2">
@@ -175,7 +181,7 @@ export function AdminBookSection({ authHeader, adminUsername }: Props) {
                         : "rounded-lg border border-zinc-700 px-3 py-1.5 text-xs text-zinc-300 hover:border-cyan-500/40"
                     }
                   >
-                    {GROUP_SINGER_NICKNAME}
+                    {groupLabel}
                   </button>
                   {selfNickname && (
                     <button
@@ -195,12 +201,12 @@ export function AdminBookSection({ authHeader, adminUsername }: Props) {
                 {adminUsername && (
                   <div className="mt-3 flex flex-wrap items-end gap-2">
                     <label className="flex min-w-[12rem] flex-1 flex-col gap-1 text-sm">
-                      <span className="text-zinc-400">Il tuo nickname sul palco</span>
+                      <span className="text-zinc-400">{t("admin.book.selfNicknameLabel")}</span>
                       <input
                         className="kg-input"
                         value={selfNicknameDraft}
                         onChange={(e) => setSelfNicknameDraft(e.target.value)}
-                        placeholder="es. Marco (host)"
+                        placeholder={t("admin.book.selfNicknamePlaceholder")}
                         maxLength={40}
                       />
                     </label>
@@ -210,14 +216,14 @@ export function AdminBookSection({ authHeader, adminUsername }: Props) {
                       disabled={!selfNicknameDraft.trim()}
                       className="rounded-lg border border-zinc-600 px-3 py-2 text-xs text-zinc-200 hover:bg-zinc-800 disabled:opacity-40"
                     >
-                      Salva e usa
+                      {t("admin.book.saveAndUse")}
                     </button>
                   </div>
                 )}
 
                 <div className="mt-3 grid gap-3 sm:grid-cols-2">
                   <label className="flex flex-col gap-1 text-sm">
-                    <span className="text-zinc-400">Partecipante in sala</span>
+                    <span className="text-zinc-400">{t("admin.book.participantLabel")}</span>
                     <select
                       className="kg-input"
                       value={assignMode === "participant" ? assignUserId : ""}
@@ -229,7 +235,7 @@ export function AdminBookSection({ authHeader, adminUsername }: Props) {
                         setCustomNickname("");
                       }}
                     >
-                      <option value="">— scegli —</option>
+                      <option value="">{t("admin.book.chooseOption")}</option>
                       {participants.map((p) => (
                         <option key={p.id} value={p.id}>
                           {p.nickname}
@@ -238,7 +244,7 @@ export function AdminBookSection({ authHeader, adminUsername }: Props) {
                     </select>
                   </label>
                   <label className="flex flex-col gap-1 text-sm">
-                    <span className="text-zinc-400">Oppure nickname libero</span>
+                    <span className="text-zinc-400">{t("admin.book.customNicknameLabel")}</span>
                     <input
                       className="kg-input"
                       value={customNickname}
@@ -246,15 +252,14 @@ export function AdminBookSection({ authHeader, adminUsername }: Props) {
                         setCustomNickname(e.target.value);
                         if (e.target.value.trim()) setAssignMode("custom");
                       }}
-                      placeholder="es. ospite del locale"
+                      placeholder={t("admin.book.customNicknamePlaceholder")}
                       maxLength={40}
                     />
                   </label>
                 </div>
 
                 <p className="mt-2 text-xs text-zinc-500">
-                  <strong className="text-zinc-400">{GROUP_SINGER_NICKNAME}</strong> indica un brano per tutti al
-                  tavolo. I video YouTube prenotati dall&apos;host entrano direttamente in coda (senza approvazione).
+                  {t("admin.book.groupHint", { group: groupLabel })}
                 </p>
               </div>
             }
@@ -264,8 +269,8 @@ export function AdminBookSection({ authHeader, adminUsername }: Props) {
             bookYoutube={async (url, title) => {
               await apiAdminBookYoutube(eventId, url, { ...resolveAssignee(), ytTitle: title }, authHeader);
             }}
-            midiBookedMessage={(title) => `«${title}» aggiunto in coda per ${assigneeLabel()}.`}
-            ytBookedMessage={(title) => `«${title}» aggiunto in coda per ${assigneeLabel()}.`}
+            midiBookedMessage={(title) => t("admin.book.addedToQueue", { title, assignee: assigneeLabel() })}
+            ytBookedMessage={(title) => t("admin.book.addedToQueue", { title, assignee: assigneeLabel() })}
           />
         </div>
       )}

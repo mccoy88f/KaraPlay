@@ -5,12 +5,21 @@ import {
   type LeaderboardEntry,
 } from "../../api/client";
 import { getEventSocket } from "../../lib/socket";
+import { useI18n } from "../../i18n/context";
 
 const MEDALS = ["🥇", "🥈", "🥉"];
 
-function LeaderboardList({ entries, highlightNickname }: { entries: LeaderboardEntry[]; highlightNickname?: string }) {
+function LeaderboardList({
+  entries,
+  highlightNickname,
+  t,
+}: {
+  entries: LeaderboardEntry[];
+  highlightNickname?: string;
+  t: (key: string, params?: Record<string, string | number>) => string;
+}) {
   if (entries.length === 0) {
-    return <p className="mt-4 text-center text-sm text-zinc-500">Ancora nessuna esibizione conclusa.</p>;
+    return <p className="mt-4 text-center text-sm text-zinc-500">{t("leaderboard.empty")}</p>;
   }
   return (
     <ol className="mt-4 space-y-2">
@@ -30,7 +39,7 @@ function LeaderboardList({ entries, highlightNickname }: { entries: LeaderboardE
             </span>
             <span className="min-w-0 flex-1 truncate font-medium text-white">{e.nickname}</span>
             <span className="text-xs text-zinc-600">
-              {e.performances} {e.performances === 1 ? "brano" : "brani"}
+              {e.performances} {e.performances === 1 ? t("leaderboard.song") : t("leaderboard.songs")}
             </span>
             <span className="font-display w-12 text-right text-lg font-semibold text-amber-300">
               {e.avgScore.toFixed(1)}
@@ -43,6 +52,7 @@ function LeaderboardList({ entries, highlightNickname }: { entries: LeaderboardE
 }
 
 export function LeaderboardTab({ eventId, userNickname }: { eventId: string; userNickname?: string }) {
+  const { t } = useI18n();
   const [scope, setScope] = useState<"event" | "global">("event");
   const [eventEntries, setEventEntries] = useState<LeaderboardEntry[]>([]);
   const [globalEntries, setGlobalEntries] = useState<LeaderboardEntry[]>([]);
@@ -57,7 +67,7 @@ export function LeaderboardTab({ eventId, userNickname }: { eventId: string; use
         setEventEntries(ev.entries);
         setGlobalEntries(gl.entries);
       } catch (e) {
-        if (!cancelled) setErr(e instanceof Error ? e.message : "Errore classifica");
+        if (!cancelled) setErr(e instanceof Error ? e.message : t("common.error"));
       }
     })();
 
@@ -70,26 +80,26 @@ export function LeaderboardTab({ eventId, userNickname }: { eventId: string; use
       cancelled = true;
       socket.off("leaderboard:update", onUpdate);
     };
-  }, [eventId]);
+  }, [eventId, t]);
 
   return (
     <div className="p-5 md:p-6">
       <div className="flex items-center justify-between gap-2">
-        <h2 className="font-display text-lg font-semibold text-white">Classifica</h2>
+        <h2 className="font-display text-lg font-semibold text-white">{t("leaderboard.title")}</h2>
         <div className="flex gap-1 rounded-lg border border-zinc-800 bg-zinc-950 p-1 text-xs">
           <button
             type="button"
             onClick={() => setScope("event")}
             className={scope === "event" ? "rounded bg-zinc-700 px-3 py-1 text-white" : "px-3 py-1 text-zinc-500"}
           >
-            Serata
+            {t("leaderboard.event")}
           </button>
           <button
             type="button"
             onClick={() => setScope("global")}
             className={scope === "global" ? "rounded bg-zinc-700 px-3 py-1 text-white" : "px-3 py-1 text-zinc-500"}
           >
-            Storica
+            {t("leaderboard.global")}
           </button>
         </div>
       </div>
@@ -99,10 +109,9 @@ export function LeaderboardTab({ eventId, userNickname }: { eventId: string; use
       <LeaderboardList
         entries={scope === "event" ? eventEntries : globalEntries}
         highlightNickname={userNickname}
+        t={t}
       />
-      <p className="mt-4 text-xs text-zinc-600">
-        Punteggio = media voti (80%) + bonus commenti ricevuti (20%). Si aggiorna a fine esibizione.
-      </p>
+      <p className="mt-4 text-xs text-zinc-600">{t("leaderboard.scoreHint")}</p>
     </div>
   );
 }

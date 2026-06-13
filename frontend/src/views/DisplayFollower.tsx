@@ -11,6 +11,7 @@ import type { DisplayTransportPayload, DisplayTransportState } from "../lib/disp
 import { isGuestSessionValid, reconcileGuestSession } from "../lib/authSession";
 import { KaraokeLyricsFollower } from "../components/KaraokeLyricsFollower";
 import { YoutubeVideoFollower } from "../components/YoutubeVideoFollower";
+import { useI18n } from "../i18n/context";
 
 const socketUrl = import.meta.env.VITE_API_URL || (typeof window !== "undefined" ? window.location.origin : "");
 const SYNC_TIMEOUT_MS = 8000;
@@ -37,6 +38,7 @@ type VideoSyncState = {
 
 /** /display senza ?eventId= — segue il palco senza audio (serata del join guest). */
 export function DisplayFollower() {
+  const { t } = useI18n();
   const storedEvent = getStoredEvent();
   const eventId = storedEvent?.id ?? null;
   const nickname = getStoredNickname();
@@ -157,34 +159,28 @@ export function DisplayFollower() {
     const timer = window.setTimeout(() => {
       setVideoSync((prev) =>
         prev.connecting
-          ? { connecting: false, connected: false, target: null, error: "Proiettore non risponde. Riprova." }
+          ? { connecting: false, connected: false, target: null, error: t("displayFollower.projectorTimeout") }
           : prev
       );
     }, SYNC_TIMEOUT_MS);
     return () => window.clearTimeout(timer);
-  }, [videoSync.connecting, live?.performanceId]);
+  }, [videoSync.connecting, live?.performanceId, t]);
 
   if (!sessionOk || !eventId) {
     return (
       <div className="kg-page-bg flex min-h-dvh flex-col items-center justify-center px-6 text-center">
-        <p className="font-display text-xs uppercase tracking-[0.35em] text-cyan-400/90">Segui il palco</p>
-        <h1 className="font-display mt-4 text-2xl font-semibold text-white">Entra nella serata</h1>
-        <p className="mt-3 max-w-md text-sm text-zinc-400">
-          Questa pagina segue lo schermo sala <strong className="text-zinc-200">senza audio</strong>. Serve la stessa
-          serata del join pubblico (PIN + nickname).
-        </p>
-        <p className="mt-2 max-w-md text-sm text-zinc-500">
-          Chi proietta deve usare <span className="font-mono text-fuchsia-300">/display?eventId=…</span> dal pannello
-          Conduzione.
-        </p>
+        <p className="font-display text-xs uppercase tracking-[0.35em] text-cyan-400/90">{t("displayFollower.followStage")}</p>
+        <h1 className="font-display mt-4 text-2xl font-semibold text-white">{t("displayFollower.enterTitle")}</h1>
+        <p className="mt-3 max-w-md text-sm text-zinc-400">{t("displayFollower.enterHint")}</p>
+        <p className="mt-2 max-w-md text-sm text-zinc-500">{t("displayFollower.presenterHint")}</p>
         <Link
           to="/join/enter"
           className="mt-8 rounded-xl bg-fuchsia-600 px-6 py-3 text-sm font-semibold text-white hover:bg-fuchsia-500"
         >
-          Entra con PIN
+          {t("displayFollower.enterPin")}
         </Link>
         <Link to="/join" className="mt-4 text-sm text-zinc-500 hover:text-zinc-300">
-          ← Area pubblico
+          {t("displayFollower.publicArea")}
         </Link>
       </div>
     );
@@ -194,24 +190,24 @@ export function DisplayFollower() {
     <div className="kg-page-bg flex h-dvh flex-col overflow-hidden">
       <header className="flex shrink-0 items-start justify-between gap-3 border-b border-zinc-800/80 bg-zinc-950/40 px-4 py-3 backdrop-blur-md">
         <div className="text-left">
-          <p className="text-[10px] font-medium uppercase tracking-[0.3em] text-cyan-400/90">Segui il palco</p>
+          <p className="text-[10px] font-medium uppercase tracking-[0.3em] text-cyan-400/90">{t("displayFollower.followStage")}</p>
           <p className="mt-0.5 text-sm text-zinc-300">
             {nickname ? (
               <>
-                Ciao <span className="text-white">{nickname}</span>
+                {t("displayFollower.hello")} <span className="text-white">{nickname}</span>
               </>
             ) : (
-              "Modalità silenziosa"
+              t("displayFollower.silentMode")
             )}
           </p>
           <p className="mt-1 text-xs text-zinc-600">
-            Nessun audio · {live?.isYoutube ? "video su richiesta" : "testi sincronizzati al proiettore"}
+            {live?.isYoutube ? t("displayFollower.noAudioVideo") : t("displayFollower.noAudioMidi")}
           </p>
         </div>
         <div className="text-right">
           <p className="font-display text-sm font-semibold text-zinc-100">{eventName || storedEvent?.name}</p>
           <Link to="/join" className="mt-1 inline-block text-xs text-fuchsia-400 hover:underline">
-            Vota da /join →
+            {t("displayFollower.voteFrom")}
           </Link>
         </div>
       </header>
@@ -266,16 +262,13 @@ export function DisplayFollower() {
           <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center">
             {lastScore !== null ? (
               <>
-                <p className="text-xs uppercase tracking-[0.3em] text-fuchsia-300/90">Ultimo punteggio</p>
+                <p className="text-xs uppercase tracking-[0.3em] text-fuchsia-300/90">{t("displayFollower.lastScore")}</p>
                 <p className="font-display text-6xl font-bold text-white">{lastScore.toFixed(1)}</p>
               </>
             ) : (
               <>
-                <h1 className="font-display text-2xl font-semibold text-white">In attesa del prossimo brano</h1>
-                <p className="max-w-sm text-sm text-zinc-500">
-                  Quando l&apos;host avvia un brano sul proiettore, i testi MIDI si aggiornano qui in sync; per i video
-                  usa <strong className="text-zinc-300">Connetti</strong> in basso.
-                </p>
+                <h1 className="font-display text-2xl font-semibold text-white">{t("displayFollower.waiting")}</h1>
+                <p className="max-w-sm text-sm text-zinc-500">{t("displayFollower.waitingHint")}</p>
               </>
             )}
           </div>

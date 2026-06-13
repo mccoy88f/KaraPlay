@@ -3,6 +3,7 @@ import { apiGetQueue, getStoredUserId } from "../../api/client";
 import { getEventSocket } from "../../lib/socket";
 import type { QueueBookingDto } from "../../lib/queueDisplay";
 import { turnHintBody, turnHintForUser, turnHintTitle, type TurnHint } from "../../lib/turnHint";
+import { useI18n } from "../../i18n/context";
 
 type Props = {
   eventId: string;
@@ -19,6 +20,7 @@ function notifyBrowser(title: string, body: string) {
 
 /** Banner turno visibile su tutti i tab di /join. */
 export function TurnAlertBar({ eventId }: Props) {
+  const { t } = useI18n();
   const userId = getStoredUserId();
   const [hint, setHint] = useState<TurnHint | null>(null);
   const lastNotifiedRef = useRef<string | null>(null);
@@ -32,9 +34,9 @@ export function TurnAlertBar({ eventId }: Props) {
       const key = next.kind === "now" ? `now:${next.booking.id}` : `after:${next.booking.id}:${next.previous.id}`;
       if (lastNotifiedRef.current === key) return;
       lastNotifiedRef.current = key;
-      notifyBrowser(turnHintTitle(next), turnHintBody(next));
+      notifyBrowser(turnHintTitle(next, t), turnHintBody(next, t));
     },
-    [userId]
+    [userId, t]
   );
 
   useEffect(() => {
@@ -54,7 +56,7 @@ export function TurnAlertBar({ eventId }: Props) {
     const onStart = (payload: { user?: { id?: string } }) => {
       if (payload.user?.id === userId) {
         lastNotifiedRef.current = `now:live:${Date.now()}`;
-        notifyBrowser("È il tuo turno!", "Vai sul palco — in bocca al lupo! 🎤");
+        notifyBrowser(t("turn.nowTitle"), t("turn.notifyNow"));
       }
     };
 
@@ -65,7 +67,7 @@ export function TurnAlertBar({ eventId }: Props) {
       socket.off("queue:update", onQueue);
       socket.off("performance:start", onStart);
     };
-  }, [eventId, userId, applyQueue]);
+  }, [eventId, userId, applyQueue, t]);
 
   useEffect(() => {
     if (typeof Notification === "undefined" || Notification.permission !== "default") return;
@@ -85,8 +87,8 @@ export function TurnAlertBar({ eventId }: Props) {
           : "rounded-xl border border-fuchsia-500/40 bg-fuchsia-500/10 px-4 py-3 text-sm text-fuchsia-50"
       }
     >
-      <p className="font-display text-base font-semibold">{turnHintTitle(hint)}</p>
-      <p className="mt-1 text-sm opacity-90">{turnHintBody(hint)}</p>
+      <p className="font-display text-base font-semibold">{turnHintTitle(hint, t)}</p>
+      <p className="mt-1 text-sm opacity-90">{turnHintBody(hint, t)}</p>
     </div>
   );
 }

@@ -26,18 +26,18 @@ export function queuePosition(active: QueueBookingDto[], bookingId: string): num
   return idx >= 0 ? idx + 1 : null;
 }
 
-export function statusLabel(status: string): string {
+export function statusLabel(status: string, t: (key: string) => string): string {
   switch (status) {
     case "PENDING":
-      return "In attesa";
+      return t("queue.status.pending");
     case "APPROVED":
-      return "In coda";
+      return t("queue.status.approved");
     case "READY":
-      return "Pronto";
+      return t("queue.status.ready");
     case "PROCESSING":
-      return "Elaborazione";
+      return t("queue.status.processing");
     case "PERFORMING":
-      return "Sul palco";
+      return t("queue.status.performing");
     default:
       return status;
   }

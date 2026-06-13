@@ -16,6 +16,7 @@ import {
 } from "../api/client";
 import type { SoundfontBankId } from "../lib/soundfontBanks";
 import { getSoundfontBank } from "../lib/soundfontBanks";
+import { useI18n } from "../i18n/context";
 import { DisplayFollower } from "./DisplayFollower";
 
 type SongPayload = {
@@ -91,6 +92,7 @@ export function Display() {
 
 /** Schermo sala del presentatore: richiede ?eventId= e login admin. */
 function DisplayPresenter({ eventId }: { eventId: string }) {
+  const { t } = useI18n();
   // Lo schermo sala è del presentatore: serve il login admin e la serata deve essere sua.
   const [adminToken, setAdminToken] = useState<string | null>(() => localStorage.getItem(ADMIN_TOKEN_KEY));
   const [auth, setAuth] = useState<"checking" | "login" | "denied" | "ok">("checking");
@@ -185,7 +187,7 @@ function DisplayPresenter({ eventId }: { eventId: string }) {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setLoginErr((data as { error?: string }).error ?? "Accesso fallito");
+        setLoginErr((data as { error?: string }).error ?? t("admin.loginFailed"));
         return;
       }
       const token = (data as { token: string }).token;
@@ -277,7 +279,7 @@ function DisplayPresenter({ eventId }: { eventId: string }) {
           })
           .catch(() => {});
       } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : "Serata non trovata");
+        if (!cancelled) setError(e instanceof Error ? e.message : t("admin.display.eventNotFound"));
         return;
       }
 
@@ -311,7 +313,7 @@ function DisplayPresenter({ eventId }: { eventId: string }) {
         const lb = await apiGetEventLeaderboard(id);
         if (!cancelled) setLeaderboard(lb.entries);
       } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : "Errore coda");
+        if (!cancelled) setError(e instanceof Error ? e.message : t("admin.display.queueError"));
       }
 
       socket = io(socketUrl, { path: "/socket.io", transports: ["polling", "websocket"] });
@@ -402,31 +404,35 @@ function DisplayPresenter({ eventId }: { eventId: string }) {
       });
 
       socket.on("youtube:processing", (payload: { progress: number }) => {
-        setYtHint(`Download video in corso… ${payload.progress}%`);
+        setYtHint(t("admin.display.youtubeDownloading", { progress: payload.progress }));
       });
       socket.on("youtube:ready", () => {
-        setYtHint("Video pronto: si avvia senza pubblicità");
+        setYtHint(t("admin.display.youtubeReady"));
         window.setTimeout(() => setYtHint(null), 5000);
       });
       socket.on("youtube:error", (payload: { error?: string }) => {
-        setYtHint(`Download video fallito (si userà l'embed) — ${payload?.error ?? "errore"}`);
+        setYtHint(
+          t("admin.display.youtubeDownloadFailed", {
+            error: payload?.error ?? t("admin.display.youtubeErrorFallback"),
+          })
+        );
         window.setTimeout(() => setYtHint(null), 8000);
       });
     }
 
-    bootstrap().catch(() => setError("Connessione fallita"));
+    bootstrap().catch(() => setError(t("admin.display.connectionFailed")));
 
     return () => {
       cancelled = true;
       socket?.disconnect();
       socketRef.current = null;
     };
-  }, [eventId]);
+  }, [eventId, t]);
 
   if (auth === "checking") {
     return (
       <div className="kg-page-bg flex min-h-dvh items-center justify-center">
-        <p className="text-sm text-zinc-500">Verifica accesso…</p>
+        <p className="text-sm text-zinc-500">{t("admin.checking")}</p>
       </div>
     );
   }
@@ -436,15 +442,13 @@ function DisplayPresenter({ eventId }: { eventId: string }) {
       <div className="kg-page-bg flex min-h-dvh flex-col items-center justify-center px-4">
         <div className="w-full max-w-sm">
           <header className="mb-8 text-center">
-            <p className="font-display text-xs uppercase tracking-[0.35em] text-amber-300/90">Schermo sala</p>
-            <h1 className="font-display mt-3 text-2xl font-semibold text-white">Riservato al presentatore</h1>
-            <p className="mt-3 text-sm text-zinc-400">
-              Accedi con le credenziali del pannello host: lo schermo gestirà da solo la fine dei brani.
-            </p>
+            <p className="font-display text-xs uppercase tracking-[0.35em] text-amber-300/90">{t("admin.display.title")}</p>
+            <h1 className="font-display mt-3 text-2xl font-semibold text-white">{t("admin.display.loginTitle")}</h1>
+            <p className="mt-3 text-sm text-zinc-400">{t("admin.display.loginHint")}</p>
           </header>
           <form onSubmit={displayLogin} className="kg-card flex flex-col gap-4 p-6">
             <label className="flex flex-col gap-1.5 text-sm">
-              <span className="text-zinc-400">Nome utente</span>
+              <span className="text-zinc-400">{t("admin.username")}</span>
               <input
                 className="rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2.5 outline-none ring-amber-500/30 focus:ring-2"
                 value={loginUser}
@@ -454,7 +458,7 @@ function DisplayPresenter({ eventId }: { eventId: string }) {
               />
             </label>
             <label className="flex flex-col gap-1.5 text-sm">
-              <span className="text-zinc-400">Password</span>
+              <span className="text-zinc-400">{t("admin.password")}</span>
               <input
                 type="password"
                 className="rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2.5 outline-none ring-amber-500/30 focus:ring-2"
@@ -470,12 +474,12 @@ function DisplayPresenter({ eventId }: { eventId: string }) {
               disabled={loginBusy || !loginUser.trim() || !loginPw}
               className="font-display mt-1 rounded-xl bg-gradient-to-r from-amber-600 to-amber-500 px-4 py-3 font-semibold text-white hover:from-amber-500 hover:to-amber-400 disabled:opacity-40"
             >
-              {loginBusy ? "Accesso…" : "Apri lo schermo"}
+              {loginBusy ? t("admin.loggingIn") : t("admin.display.openDisplay")}
             </button>
           </form>
           <p className="mt-4 text-center text-sm text-zinc-600">
             <Link to="/join" className="hover:text-zinc-400">
-              ← Area pubblico
+              {t("admin.publicArea")}
             </Link>
           </p>
         </div>
@@ -486,14 +490,11 @@ function DisplayPresenter({ eventId }: { eventId: string }) {
   if (auth === "denied") {
     return (
       <div className="kg-page-bg flex min-h-dvh flex-col items-center justify-center px-6 text-center">
-        <p className="font-display text-xs uppercase tracking-[0.4em] text-amber-300/90">Schermo sala</p>
-        <h1 className="font-display mt-6 text-2xl font-semibold text-white">Serata di un altro admin</h1>
-        <p className="mt-4 max-w-md text-zinc-400">
-          Questo account non gestisce la serata richiesta. Apri lo schermo dalla console di conduzione
-          della tua serata.
-        </p>
+        <p className="font-display text-xs uppercase tracking-[0.4em] text-amber-300/90">{t("admin.display.title")}</p>
+        <h1 className="font-display mt-6 text-2xl font-semibold text-white">{t("admin.display.deniedTitle")}</h1>
+        <p className="mt-4 max-w-md text-zinc-400">{t("admin.display.deniedHint")}</p>
         <Link to="/admin" className="mt-8 text-sm text-cyan-400 hover:underline">
-          Vai al pannello host
+          {t("admin.display.goToPanel")}
         </Link>
       </div>
     );
@@ -511,7 +512,7 @@ function DisplayPresenter({ eventId }: { eventId: string }) {
               <p className="font-display text-lg text-zinc-300 md:text-xl">
                 <span className="font-semibold text-white">{live.user.nickname}</span>
                 <span className="text-zinc-500"> · </span>
-                <span className="text-fuchsia-300/90">in esibizione</span>
+                <span className="text-fuchsia-300/90">{t("live.onStage")}</span>
               </p>
               <p className="rounded-full border border-amber-500/40 bg-amber-500/10 px-3 py-1 text-amber-200 md:px-4 md:py-1.5">
                 ★{" "}
@@ -519,7 +520,7 @@ function DisplayPresenter({ eventId }: { eventId: string }) {
                   {voteAvg != null ? voteAvg.toFixed(1) : "—"}
                 </span>
                 <span className="ml-2 text-xs text-amber-200/70">
-                  ({voteCount} {voteCount === 1 ? "voto" : "voti"})
+                  ({voteCount} {voteCount === 1 ? t("common.vote") : t("common.votes")})
                 </span>
               </p>
               <p className="max-w-md text-sm text-zinc-500 md:max-w-xl">
@@ -531,14 +532,14 @@ function DisplayPresenter({ eventId }: { eventId: string }) {
             <div className="flex flex-wrap items-end gap-3 md:gap-4">
               {eventInfo && (
                 <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 px-4 py-2 text-left">
-                  <p className="text-[10px] uppercase tracking-wider text-zinc-500">PIN serata</p>
+                  <p className="text-[10px] uppercase tracking-wider text-zinc-500">{t("join.enter.pin")}</p>
                   <p className="font-display text-2xl font-semibold tracking-[0.2em] text-fuchsia-300">
                     {eventInfo.joinCode}
                   </p>
                 </div>
               )}
               <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 px-4 py-2 text-left">
-                <p className="text-[10px] uppercase tracking-wider text-zinc-500">In coda</p>
+                <p className="text-[10px] uppercase tracking-wider text-zinc-500">{t("admin.display.inQueue")}</p>
                 <p className="font-display text-2xl font-semibold tabular-nums text-cyan-300">{queueLen}</p>
               </div>
             </div>
@@ -597,14 +598,14 @@ function DisplayPresenter({ eventId }: { eventId: string }) {
                 <YoutubeEmbed
                   key={live.performance.id}
                   ytUrl={live.booking.ytUrl}
-                  title={live.booking.ytTitle ?? live.song?.title ?? "Brano YouTube"}
+                  title={live.booking.ytTitle ?? live.song?.title ?? t("admin.display.youtubeTrack")}
                   onTransportTick={emitDisplayTransport}
                   onEnded={() => void autoEnd()}
                 />
               ) : (
                 <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-6">
                   <h1 className="font-display text-4xl font-bold text-white md:text-6xl">
-                    {live.song ? live.song.title : "Brano"}
+                    {live.song ? live.song.title : t("admin.display.track")}
                   </h1>
                   {live.song && <p className="text-xl text-zinc-400">{live.song.artist}</p>}
                 </div>
@@ -632,27 +633,27 @@ function DisplayPresenter({ eventId }: { eventId: string }) {
             <div className="flex flex-col items-center justify-center gap-6">
               {lastScore !== null ? (
                 <>
-                  <p className="font-display text-xl uppercase tracking-[0.3em] text-fuchsia-300/90">Punteggio</p>
+                  <p className="font-display text-xl uppercase tracking-[0.3em] text-fuchsia-300/90">{t("admin.display.score")}</p>
                   <p className="kg-score-pop font-display text-8xl font-bold text-white drop-shadow-[0_0_40px_rgba(232,121,249,0.35)]">
                     {lastScore.toFixed(1)}
                   </p>
                 </>
               ) : (
                 <h1 className="font-display max-w-3xl text-4xl font-semibold leading-tight text-white md:text-5xl">
-                  In attesa del prossimo brano
+                  {t("admin.display.waiting")}
                 </h1>
               )}
 
               {upNext.length > 0 && (
                 <div className="w-full max-w-md rounded-2xl border border-zinc-800 bg-zinc-950/60 p-5 text-left">
-                  <p className="text-xs font-medium uppercase tracking-[0.25em] text-cyan-400/90">Prossimi</p>
+                  <p className="text-xs font-medium uppercase tracking-[0.25em] text-cyan-400/90">{t("admin.display.upNext")}</p>
                   <ul className="mt-3 space-y-2">
                     {upNext.map((b, i) => (
                       <li key={b.id} className="flex items-baseline gap-3">
                         <span className="font-mono text-sm text-zinc-600">{i + 1}.</span>
                         <span className="font-medium text-white">{b.user.nickname}</span>
                         <span className="min-w-0 flex-1 truncate text-sm text-zinc-400">
-                          {b.song ? `${b.song.title} — ${b.song.artist}` : b.ytTitle ?? "YouTube"}
+                          {b.song ? `${b.song.title} — ${b.song.artist}` : b.ytTitle ?? t("admin.display.youtube")}
                         </span>
                       </li>
                     ))}
@@ -662,22 +663,22 @@ function DisplayPresenter({ eventId }: { eventId: string }) {
 
               {qrDataUrl && eventInfo && (
                 <div className="flex items-center gap-5 rounded-2xl border border-zinc-800 bg-zinc-950/60 p-5">
-                  <img src={qrDataUrl} alt={`QR per entrare nella serata, PIN ${eventInfo.joinCode}`} className="h-32 w-32 rounded-lg" />
+                  <img src={qrDataUrl} alt={t("admin.display.qrAlt", { pin: eventInfo.joinCode })} className="h-32 w-32 rounded-lg" />
                   <div className="text-left">
-                    <p className="text-sm text-zinc-400">Inquadra per partecipare</p>
+                    <p className="text-sm text-zinc-400">{t("admin.display.scanToJoin")}</p>
                     <p className="font-display mt-1 text-2xl font-semibold tracking-[0.25em] text-white">
                       {eventInfo.joinCode}
                     </p>
-                    <p className="mt-1 text-xs text-zinc-600">prenota · vota · commenta</p>
+                    <p className="mt-1 text-xs text-zinc-600">{t("admin.display.scanHint")}</p>
                   </div>
                 </div>
               )}
             </div>
 
             <aside className="rounded-2xl border border-zinc-800 bg-zinc-950/60 p-5 text-left">
-              <p className="text-xs font-medium uppercase tracking-[0.25em] text-amber-300/90">🏆 Classifica serata</p>
+              <p className="text-xs font-medium uppercase tracking-[0.25em] text-amber-300/90">{t("admin.display.leaderboardTitle")}</p>
               {leaderboard.length === 0 ? (
-                <p className="mt-4 text-sm text-zinc-500">Ancora nessuna esibizione conclusa.</p>
+                <p className="mt-4 text-sm text-zinc-500">{t("leaderboard.empty")}</p>
               ) : (
                 <ol className="mt-4 space-y-2">
                   {leaderboard.slice(0, 8).map((e, i) => (
@@ -700,11 +701,11 @@ function DisplayPresenter({ eventId }: { eventId: string }) {
       {!live && (
         <footer className="border-t border-zinc-800/80 px-4 py-3 text-center text-xs text-zinc-600 md:px-8">
           <Link to="/join" className="hover:text-zinc-400">
-            Area pubblico
+            {t("admin.footer.public")}
           </Link>
           <span className="mx-2 text-zinc-800">|</span>
           <Link to="/admin" className="hover:text-zinc-400">
-            Admin
+            {t("common.admin")}
           </Link>
         </footer>
       )}

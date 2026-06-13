@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
+import { LanguageSettings } from "../LanguageSettings";
+import { useI18n } from "../../i18n/context";
 
 const base = import.meta.env.VITE_API_URL ?? "";
 
@@ -18,6 +20,7 @@ type Props = {
 };
 
 export function AccountSection({ me, authHeader }: Props) {
+  const { t } = useI18n();
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
@@ -58,10 +61,10 @@ export function AccountSection({ me, authHeader }: Props) {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setErr((data as { error?: string }).error ?? "Cambio password fallito");
+        setErr((data as { error?: string }).error ?? t("admin.passwordChangeFailed"));
         return;
       }
-      setMsg("Password aggiornata.");
+      setMsg(t("admin.account.passwordUpdated"));
       setCurrentPw("");
       setNewPw("");
     } finally {
@@ -82,10 +85,10 @@ export function AccountSection({ me, authHeader }: Props) {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setErr((data as { error?: string }).error ?? "Creazione fallita");
+        setErr((data as { error?: string }).error ?? t("admin.createFailed"));
         return;
       }
-      setMsg(`Admin «${newUsername.trim()}» creato: può gestire le sue serate da questo stesso pannello.`);
+      setMsg(t("admin.account.adminCreated", { name: newUsername.trim() }));
       setNewUsername("");
       setNewUserPw("");
       await loadUsers();
@@ -95,7 +98,7 @@ export function AccountSection({ me, authHeader }: Props) {
   }
 
   async function deleteUser(u: AdminUserRow) {
-    if (!window.confirm(`Eliminare l'admin «${u.username}»? Le sue serate passeranno al super admin.`)) return;
+    if (!window.confirm(t("admin.deleteConfirm", { name: u.username }))) return;
     setErr(null);
     const res = await fetch(`${base}/api/admin/users/${encodeURIComponent(u.id)}`, {
       method: "DELETE",
@@ -103,7 +106,7 @@ export function AccountSection({ me, authHeader }: Props) {
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      setErr((data as { error?: string }).error ?? "Eliminazione fallita");
+      setErr((data as { error?: string }).error ?? t("admin.deleteFailed"));
       return;
     }
     await loadUsers();
@@ -111,6 +114,8 @@ export function AccountSection({ me, authHeader }: Props) {
 
   return (
     <div className="space-y-6">
+      <LanguageSettings />
+
       {msg && <p className="text-sm text-emerald-400">{msg}</p>}
       {err && <p className="text-sm text-red-400">{err}</p>}
 
@@ -124,13 +129,13 @@ export function AccountSection({ me, authHeader }: Props) {
                 : "ml-2 rounded-full border border-cyan-500/40 bg-cyan-500/10 px-2.5 py-0.5 align-middle text-xs text-cyan-200"
             }
           >
-            {me.role === "SUPERADMIN" ? "super admin" : "admin"}
+            {me.role === "SUPERADMIN" ? t("admin.roleSuper") : t("admin.roleAdmin")}
           </span>
         </h2>
 
         <form onSubmit={changePassword} className="mt-4 flex flex-wrap items-end gap-3">
           <label className="flex min-w-44 flex-col gap-1 text-sm">
-            <span className="text-zinc-400">Password attuale</span>
+            <span className="text-zinc-400">{t("admin.account.currentPassword")}</span>
             <input
               type="password"
               className="rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 outline-none"
@@ -141,7 +146,7 @@ export function AccountSection({ me, authHeader }: Props) {
             />
           </label>
           <label className="flex min-w-44 flex-col gap-1 text-sm">
-            <span className="text-zinc-400">Nuova password (min 6)</span>
+            <span className="text-zinc-400">{t("admin.account.newPassword")}</span>
             <input
               type="password"
               className="rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 outline-none"
@@ -157,23 +162,19 @@ export function AccountSection({ me, authHeader }: Props) {
             disabled={pwBusy || newPw.length < 6 || !currentPw}
             className="rounded-lg bg-fuchsia-600 px-4 py-2 text-sm font-semibold text-white hover:bg-fuchsia-500 disabled:opacity-40"
           >
-            {pwBusy ? "…" : "Cambia password"}
+            {pwBusy ? "…" : t("admin.account.changePassword")}
           </button>
         </form>
       </section>
 
       {me.role === "SUPERADMIN" && (
         <section className="kg-card p-5 md:p-6">
-          <h2 className="font-display text-lg font-semibold text-white">Admin delle serate</h2>
-          <p className="mt-2 text-sm text-zinc-400">
-            Ogni admin entra da <code className="rounded bg-zinc-800 px-1 text-cyan-300">/admin</code> con le sue
-            credenziali e gestisce solo le <strong className="text-zinc-300">sue</strong> serate. Le impostazioni
-            tecniche (suono, cookies YouTube) sono nel tab <strong className="text-zinc-300">Tecnico</strong>.
-          </p>
+          <h2 className="font-display text-lg font-semibold text-white">{t("admin.account.adminsTitle")}</h2>
+          <p className="mt-2 text-sm text-zinc-400">{t("admin.account.adminsHint")}</p>
 
           <form onSubmit={createUser} className="mt-4 flex flex-wrap items-end gap-3">
             <label className="flex min-w-40 flex-col gap-1 text-sm">
-              <span className="text-zinc-400">Nome utente</span>
+              <span className="text-zinc-400">{t("admin.username")}</span>
               <input
                 className="rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 outline-none"
                 value={newUsername}
@@ -183,7 +184,7 @@ export function AccountSection({ me, authHeader }: Props) {
               />
             </label>
             <label className="flex min-w-40 flex-col gap-1 text-sm">
-              <span className="text-zinc-400">Password (min 6)</span>
+              <span className="text-zinc-400">{t("admin.passwordLabel")}</span>
               <input
                 type="password"
                 className="rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 outline-none"
@@ -199,7 +200,7 @@ export function AccountSection({ me, authHeader }: Props) {
               disabled={userBusy || !newUsername.trim() || newUserPw.length < 6}
               className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-40"
             >
-              {userBusy ? "…" : "+ Crea admin"}
+              {userBusy ? "…" : t("admin.account.createAdmin")}
             </button>
           </form>
 
@@ -215,7 +216,8 @@ export function AccountSection({ me, authHeader }: Props) {
                   )}
                 </span>
                 <span className="text-xs text-zinc-600">
-                  {u._count.events} {u._count.events === 1 ? "serata" : "serate"}
+                  {u._count.events}{" "}
+                  {u._count.events === 1 ? t("admin.account.events") : t("admin.account.eventsPlural")}
                 </span>
                 {u.role !== "SUPERADMIN" && (
                   <button
@@ -223,7 +225,7 @@ export function AccountSection({ me, authHeader }: Props) {
                     onClick={() => void deleteUser(u)}
                     className="rounded border border-red-500/50 px-2 py-1 text-xs text-red-200 hover:bg-red-900/50"
                   >
-                    Elimina
+                    {t("admin.account.delete")}
                   </button>
                 )}
               </li>

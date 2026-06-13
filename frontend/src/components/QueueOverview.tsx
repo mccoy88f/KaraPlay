@@ -1,5 +1,6 @@
 import { bookingLabel, queuePosition, sortedActiveQueue, statusLabel, type QueueBookingDto } from "../lib/queueDisplay";
 import { turnHintForUser } from "../lib/turnHint";
+import { useI18n } from "../i18n/context";
 
 type Props = {
   queue: QueueBookingDto[];
@@ -8,6 +9,7 @@ type Props = {
 };
 
 export function QueueOverview({ queue, viewerUserId, loading }: Props) {
+  const { t } = useI18n();
   const pendingMine = queue.filter((b) => b.status === "PENDING" && b.user.id === viewerUserId);
   const active = sortedActiveQueue(queue);
   const turnHint = turnHintForUser(queue, viewerUserId);
@@ -19,12 +21,12 @@ export function QueueOverview({ queue, viewerUserId, loading }: Props) {
 
   return (
     <section className="mb-6 space-y-4 border-b border-zinc-800 pb-6">
-      {loading && !hasAnything && <p className="text-sm text-zinc-500">Carico la scaletta…</p>}
+      {loading && !hasAnything && <p className="text-sm text-zinc-500">{t("queue.loading")}</p>}
 
       {pendingMine.length > 0 && (
         <div>
           <h3 className="text-xs font-medium uppercase tracking-[0.2em] text-amber-300/90">
-            In attesa di ok dall&apos;host
+            {t("queue.pendingHost")}
           </h3>
           <ul className="mt-2 space-y-2">
             {pendingMine.map((b) => (
@@ -33,7 +35,10 @@ export function QueueOverview({ queue, viewerUserId, loading }: Props) {
                 className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-100"
               >
                 <p className="font-medium text-white">{bookingLabel(b)}</p>
-                <p className="text-xs text-amber-200/70">{statusLabel(b.status)} · video YouTube</p>
+                <p className="text-xs text-amber-200/70">
+                  {statusLabel(b.status, t)}
+                  {t("queue.youtubeSuffix")}
+                </p>
               </li>
             ))}
           </ul>
@@ -42,13 +47,12 @@ export function QueueOverview({ queue, viewerUserId, loading }: Props) {
 
       {mineActive.length > 0 && (
         <div>
-          <h3 className="text-xs font-medium uppercase tracking-[0.2em] text-fuchsia-300/90">La tua coda</h3>
+          <h3 className="text-xs font-medium uppercase tracking-[0.2em] text-fuchsia-300/90">{t("queue.yourQueue")}</h3>
           <ul className="mt-2 space-y-2">
             {mineActive.map((b) => {
               const pos = queuePosition(active, b.id);
               const isYourTurn = turnHint?.kind === "now" && turnHint.booking.id === b.id;
-              const isUpNext =
-                turnHint?.kind === "afterPrevious" && turnHint.booking.id === b.id;
+              const isUpNext = turnHint?.kind === "afterPrevious" && turnHint.booking.id === b.id;
               return (
                 <li
                   key={b.id}
@@ -62,15 +66,15 @@ export function QueueOverview({ queue, viewerUserId, loading }: Props) {
                   </p>
                   {isYourTurn && (
                     <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-amber-200">
-                      È il tuo turno!
+                      {t("turn.nowTitle")}
                     </p>
                   )}
                   {isUpNext && turnHint.kind === "afterPrevious" && (
                     <p className="mt-1 text-xs text-fuchsia-100/90">
-                      Dopo «{bookingLabel(turnHint.previous)}» tocca a te
+                      {t("queue.afterNamed", { title: bookingLabel(turnHint.previous) })}
                     </p>
                   )}
-                  <p className="text-xs text-fuchsia-200/70">{statusLabel(b.status)}</p>
+                  <p className="text-xs text-fuchsia-200/70">{statusLabel(b.status, t)}</p>
                 </li>
               );
             })}
@@ -81,13 +85,12 @@ export function QueueOverview({ queue, viewerUserId, loading }: Props) {
       {othersActive.length > 0 && (
         <div>
           <h3 className="text-xs font-medium uppercase tracking-[0.2em] text-zinc-500">
-            {mineActive.length > 0 ? "Altri in scaletta" : "Scaletta"}
+            {mineActive.length > 0 ? t("queue.othersQueue") : t("queue.schedule")}
           </h3>
           <ul className="mt-2 max-h-40 space-y-1.5 overflow-y-auto">
             {othersActive.map((b) => {
               const pos = queuePosition(active, b.id);
-              const marksUpNext =
-                turnHint?.kind === "afterPrevious" && turnHint.previous.id === b.id;
+              const marksUpNext = turnHint?.kind === "afterPrevious" && turnHint.previous.id === b.id;
               return (
                 <li
                   key={b.id}
@@ -102,10 +105,10 @@ export function QueueOverview({ queue, viewerUserId, loading }: Props) {
                     <p className="truncate text-zinc-200">{bookingLabel(b)}</p>
                     <p className="truncate text-xs text-zinc-500">
                       {b.user.nickname}
-                      {b.status === "PERFORMING" && " · sul palco"}
+                      {b.status === "PERFORMING" && t("queue.onStage")}
                     </p>
                     {marksUpNext && (
-                      <p className="mt-1 text-xs font-medium text-amber-200">Dopo questa tocca a te</p>
+                      <p className="mt-1 text-xs font-medium text-amber-200">{t("queue.afterThis")}</p>
                     )}
                   </div>
                 </li>

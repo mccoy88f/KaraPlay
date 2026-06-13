@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useI18n } from "../../i18n/context";
 import { getEventSocket } from "../../lib/socket";
 import { youtubeVideoId } from "../YoutubeEmbed";
 
@@ -27,15 +28,9 @@ type QueueBooking = {
   performance: { id: string; scoreTotal?: number | null } | null;
 };
 
-const STATUS_STEPS: { id: string; label: string; hint: string }[] = [
-  { id: "DRAFT", label: "In preparazione", hint: "Il pubblico entra e cerca brani, senza prenotare" },
-  { id: "OPEN", label: "Prenotazioni aperte", hint: "Il pubblico entra, prenota e si canta" },
-  { id: "ENDED", label: "Conclusa", hint: "Serata chiusa" },
-];
-
-function bookingTitle(b: QueueBooking): string {
+function bookingTitle(b: QueueBooking, fallback: string): string {
   if (b.song) return `${b.song.title} — ${b.song.artist}`;
-  return b.ytTitle ?? b.ytUrl ?? "Brano";
+  return b.ytTitle ?? b.ytUrl ?? fallback;
 }
 
 function bookingCoverUrl(b: QueueBooking): string | null {
@@ -87,13 +82,17 @@ type MidiTrackOption = {
   instrumentName: string;
 };
 
-function formatMuteChannelNumber(channel: number): string {
-  return `Ch.${String(channel).padStart(2, "0")}`;
+function formatMuteChannelNumber(channel: number, t: (key: string, params?: Record<string, string | number>) => string): string {
+  return t("admin.live.muteChannel", { n: String(channel).padStart(2, "0") });
 }
 
-function formatMuteChannelLabel(t: MidiTrackOption): string {
-  const ch = formatMuteChannelNumber(t.channel);
-  const name = t.name !== "(senza nome)" ? t.name : t.instrumentName;
+function formatMuteChannelLabel(
+  track: MidiTrackOption,
+  t: (key: string, params?: Record<string, string | number>) => string
+): string {
+  const ch = formatMuteChannelNumber(track.channel, t);
+  const unnamed = t("admin.live.unnamedTrack");
+  const name = track.name !== unnamed ? track.name : track.instrumentName;
   return name ? `${ch} - ${name}` : ch;
 }
 
@@ -118,6 +117,8 @@ function TransposeLiveControl({
   title: string;
   className?: string;
 }) {
+  const { t } = useI18n();
+
   return (
     <select
       title={title}
@@ -127,7 +128,11 @@ function TransposeLiveControl({
     >
       {Array.from({ length: 25 }, (_, i) => i - 12).map((n) => (
         <option key={n} value={n}>
-          {n === 0 ? "🎵 tono orig." : n > 0 ? `🎵 +${n} st` : `🎵 ${n} st`}
+          {n === 0
+            ? t("admin.live.transposeOrig")
+            : n > 0
+              ? t("admin.live.transposePlus", { n })
+              : t("admin.live.transposeMinus", { n })}
         </option>
       ))}
     </select>
@@ -151,6 +156,7 @@ function MidiLiveControls({
   authHeader: () => Record<string, string>;
   className?: string;
 }) {
+  const { t } = useI18n();
   const [tracks, setTracks] = useState<MidiTrackOption[]>([]);
   const transpose = song.transposeSemitones ?? 0;
 
@@ -201,10 +207,10 @@ function MidiLiveControls({
         onChange={(e) => onMute(e.target.value === "" ? null : Number(e.target.value))}
         className={midiControlSelectClass(song.mutedTrack != null)}
       >
-        <option value="">🎤 voce on</option>
-        {muteOptions.map((t) => (
-          <option key={t.number} value={t.number}>
-            {formatMuteChannelLabel(t)}
+        <option value="">{t("admin.live.voiceOn")}</option>
+        {muteOptions.map((track) => (
+          <option key={track.number} value={track.number}>
+            {formatMuteChannelLabel(track, t)}
           </option>
         ))}
       </select>
@@ -222,6 +228,7 @@ type Props = {
 };
 
 export function LiveConsole({ authHeader }: Props) {
+  const { t } = useI18n();
   const [events, setEvents] = useState<AdminEvent[]>([]);
   const [eventId, setEventId] = useState<string | null>(() => localStorage.getItem(ADMIN_EVENT_KEY));
   const [queue, setQueue] = useState<QueueBooking[]>([]);
@@ -242,6 +249,16 @@ export function LiveConsole({ authHeader }: Props) {
 
   const event = events.find((e) => e.id === eventId) ?? null;
   const performingRef = useRef<string | null>(null);
+  const defaultSongTitle = t("admin.live.defaultSongTitle");
+
+  const statusSteps = useMemo(
+    () => [
+      { id: "DRAFT", label: t("admin.live.statusDraft"), hint: t("admin.live.statusDraftHint") },
+      { id: "OPEN", label: t("admin.live.statusOpen"), hint: t("admin.live.statusOpenHint") },
+      { id: "ENDED", label: t("admin.live.statusEnded"), hint: t("admin.live.statusEndedHint") },
+    ],
+    [t]
+  );
 
   const loadEvents = useCallback(async () => {
     try {
@@ -249,9 +266,9 @@ export function LiveConsole({ authHeader }: Props) {
       const data = await res.json().catch(() => ({}));
       if (res.ok) setEvents(((data as { events: AdminEvent[] }).events ?? []));
     } catch {
-      setErr("Serate non disponibili: backend raggiungibile?");
+      setErr(t("admin.live.eventsUnavailable"));
     }
-  }, [authHeader]);
+  }, [authHeader, t]);
 
   const loadQueue = useCallback(async (id: string) => {
     try {
@@ -324,7 +341,7 @@ export function LiveConsole({ authHeader }: Props) {
     });
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
-      setErr((data as { error?: string }).error ?? "Operazione non riuscita");
+      setErr((data as { error?: string }).error ?? t("admin.live.operationFailed"));
       return false;
     }
     return true;
@@ -346,7 +363,7 @@ export function LiveConsole({ authHeader }: Props) {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setErr((data as { error?: string }).error ?? "Creazione fallita");
+        setErr((data as { error?: string }).error ?? t("admin.createFailed"));
         return;
       }
       const created = data as AdminEvent;
@@ -355,9 +372,7 @@ export function LiveConsole({ authHeader }: Props) {
       setShowCreate(false);
       setNewName("");
       setNewLocation("");
-      setMsg(
-        `Serata creata in preparazione. PIN ${created.joinCode}: il pubblico può entrare e cercare brani; passa a «Prenotazioni aperte» quando vuoi accettare prenotazioni.`
-      );
+      setMsg(t("admin.live.eventCreated", { pin: created.joinCode }));
     } finally {
       setCreating(false);
     }
@@ -366,7 +381,7 @@ export function LiveConsole({ authHeader }: Props) {
   async function setStatus(status: string) {
     if (!event) return;
     setMsg(null);
-    if (status === "ENDED" && !window.confirm("Chiudere la serata? Il pubblico non potrà più prenotare.")) return;
+    if (status === "ENDED" && !window.confirm(t("admin.live.closeEventConfirm"))) return;
     const ok = await adminFetch(`/admin/events/${event.id}/status`, {
       method: "PUT",
       body: JSON.stringify({ status }),
@@ -389,7 +404,7 @@ export function LiveConsole({ authHeader }: Props) {
     setBusy(b.id);
     try {
       const ok = await adminFetch(`/admin/performances/start/${b.id}`, { method: "POST" });
-      if (ok) setMsg(`${b.user.nickname} è sul palco! Lo schermo sala parte da solo.`);
+      if (ok) setMsg(t("admin.live.performerOnStage", { name: b.user.nickname }));
     } finally {
       setBusy(null);
     }
@@ -399,7 +414,7 @@ export function LiveConsole({ authHeader }: Props) {
     if (!performing?.performance) return;
     setMsg(null);
     const ok = await adminFetch(`/admin/performances/${performing.performance.id}/end`, { method: "POST" });
-    if (ok) setMsg("Esibizione conclusa: punteggio e classifica aggiornati.");
+    if (ok) setMsg(t("admin.live.performanceEnded"));
   }
 
   async function reorderQueue(bookingIds: string[]) {
@@ -444,7 +459,7 @@ export function LiveConsole({ authHeader }: Props) {
   }
 
   async function remove(b: QueueBooking) {
-    if (!window.confirm(`Togliere «${bookingTitle(b)}» dalla scaletta?`)) return;
+    if (!window.confirm(t("admin.live.removeFromQueueConfirm", { title: bookingTitle(b, defaultSongTitle) }))) return;
     await adminFetch(`/admin/bookings/${b.id}`, { method: "DELETE" });
   }
 
@@ -456,7 +471,7 @@ export function LiveConsole({ authHeader }: Props) {
       body: JSON.stringify({ track }),
     });
     if (ok) {
-      setMsg(track == null ? "Voce guida riattivata." : `Traccia ${track} silenziata (voce guida).`);
+      setMsg(track == null ? t("admin.live.guideVoiceRestored") : t("admin.live.trackMuted", { n: track }));
       if (eventId) await loadQueue(eventId);
     }
   }
@@ -469,21 +484,25 @@ export function LiveConsole({ authHeader }: Props) {
       body: JSON.stringify({ semitones }),
     });
     if (ok) {
-      setMsg(semitones === 0 ? "Tonalità originale." : `Tonalità ${semitones > 0 ? "+" : ""}${semitones} semitoni.`);
+      setMsg(
+        semitones === 0
+          ? t("admin.live.transposeOriginal")
+          : t("admin.live.transposeSet", { n: semitones > 0 ? `+${semitones}` : String(semitones) })
+      );
       if (eventId) await loadQueue(eventId);
     }
   }
 
   /** Rinomina il titolo mostrato per una prenotazione video. */
   async function renameVideo(b: QueueBooking) {
-    const t = window.prompt("Titolo da mostrare per questo video:", b.ytTitle ?? "");
-    if (t == null || !t.trim()) return;
+    const newTitle = window.prompt(t("admin.live.renameVideoPrompt"), b.ytTitle ?? "");
+    if (newTitle == null || !newTitle.trim()) return;
     setMsg(null);
     const ok = await adminFetch(`/admin/bookings/${b.id}/title`, {
       method: "PUT",
-      body: JSON.stringify({ ytTitle: t.trim() }),
+      body: JSON.stringify({ ytTitle: newTitle.trim() }),
     });
-    if (ok) setMsg("Titolo aggiornato.");
+    if (ok) setMsg(t("admin.live.titleUpdated"));
   }
 
   /** Bis: rimette il brano in fondo alla scaletta. */
@@ -492,7 +511,7 @@ export function LiveConsole({ authHeader }: Props) {
     setBusy(b.id);
     try {
       const ok = await adminFetch(`/admin/bookings/${b.id}/replay`, { method: "POST" });
-      if (ok) setMsg(`«${bookingTitle(b)}» rimessa in scaletta per il bis.`);
+      if (ok) setMsg(t("admin.live.replayQueued", { title: bookingTitle(b, defaultSongTitle) }));
     } finally {
       setBusy(null);
     }
@@ -503,7 +522,7 @@ export function LiveConsole({ authHeader }: Props) {
     setBusy(b.id);
     try {
       const ok = await adminFetch(`/admin/youtube/process/${b.id}`, { method: "POST" });
-      if (ok) setMsg("Download avviato: a fine download il brano partirà senza pubblicità.");
+      if (ok) setMsg(t("admin.live.downloadStarted"));
     } finally {
       setBusy(null);
     }
@@ -517,17 +536,17 @@ export function LiveConsole({ authHeader }: Props) {
       <section className="kg-card p-5 md:p-6">
         <div className="flex flex-wrap items-end justify-between gap-4">
           <label className="flex min-w-60 flex-1 flex-col gap-1 text-sm">
-            <span className="text-zinc-400">La tua serata</span>
+            <span className="text-zinc-400">{t("admin.yourEvent")}</span>
             <select
               className="rounded-xl border border-zinc-700 bg-zinc-950 px-4 py-3 text-base text-zinc-100 outline-none ring-fuchsia-500/30 focus:ring-2"
               value={eventId ?? ""}
               onChange={(e) => setEventId(e.target.value || null)}
             >
-              <option value="">— scegli una serata —</option>
+              <option value="">{t("admin.live.chooseEvent")}</option>
               {events.map((ev) => (
                 <option key={ev.id} value={ev.id}>
-                  {ev.name} · PIN {ev.joinCode}
-                  {ev.status === "ENDED" ? " (conclusa)" : ""}
+                  {ev.name} · {t("admin.live.pin")} {ev.joinCode}
+                  {ev.status === "ENDED" ? t("admin.live.eventEndedSuffix") : ""}
                 </option>
               ))}
             </select>
@@ -537,29 +556,29 @@ export function LiveConsole({ authHeader }: Props) {
             onClick={() => setShowCreate((s) => !s)}
             className="rounded-xl border border-fuchsia-500/40 bg-fuchsia-500/15 px-5 py-3 text-sm font-medium text-fuchsia-100 hover:bg-fuchsia-500/25"
           >
-            + Nuova serata
+            {t("admin.live.newEvent")}
           </button>
         </div>
 
         {showCreate && (
           <form onSubmit={createEvent} className="mt-4 flex flex-wrap items-end gap-3 rounded-xl border border-zinc-800 bg-zinc-950/50 p-4">
             <label className="flex min-w-52 flex-1 flex-col gap-1 text-sm">
-              <span className="text-zinc-400">Nome della serata</span>
+              <span className="text-zinc-400">{t("admin.live.eventName")}</span>
               <input
                 className="rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 outline-none"
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
-                placeholder="Karaoke al Bar Sport"
+                placeholder={t("admin.live.eventNamePlaceholder")}
                 required
               />
             </label>
             <label className="flex min-w-40 flex-1 flex-col gap-1 text-sm">
-              <span className="text-zinc-400">Locale (facoltativo)</span>
+              <span className="text-zinc-400">{t("admin.live.locationOptional")}</span>
               <input
                 className="rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 outline-none"
                 value={newLocation}
                 onChange={(e) => setNewLocation(e.target.value)}
-                placeholder="Bar Sport"
+                placeholder={t("admin.live.locationPlaceholder")}
               />
             </label>
             <button
@@ -567,7 +586,7 @@ export function LiveConsole({ authHeader }: Props) {
               disabled={creating || !newName.trim()}
               className="rounded-lg bg-fuchsia-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-fuchsia-500 disabled:opacity-40"
             >
-              {creating ? "Creazione…" : "Crea serata"}
+              {creating ? t("admin.live.creating") : t("admin.live.createEvent")}
             </button>
           </form>
         )}
@@ -577,7 +596,7 @@ export function LiveConsole({ authHeader }: Props) {
             <div>
               <p className="font-display text-lg font-semibold text-white">{event.name}</p>
               <p className="mt-0.5 text-sm text-zinc-500">
-                PIN <span className="font-mono text-xl tracking-[0.2em] text-fuchsia-300">{event.joinCode}</span>
+                {t("admin.live.pin")} <span className="font-mono text-xl tracking-[0.2em] text-fuchsia-300">{event.joinCode}</span>
                 <span className="mx-2 text-zinc-700">·</span>
                 <a
                   href={`/display?eventId=${event.id}`}
@@ -585,12 +604,12 @@ export function LiveConsole({ authHeader }: Props) {
                   rel="noreferrer"
                   className="text-cyan-300 underline-offset-2 hover:underline"
                 >
-                  apri schermo sala ↗
+                  {t("admin.live.openDisplay")}
                 </a>
               </p>
             </div>
-            <div className="flex flex-wrap gap-1.5" role="group" aria-label="Stato serata">
-              {STATUS_STEPS.map((s) => (
+            <div className="flex flex-wrap gap-1.5" role="group" aria-label={t("admin.live.statusGroupAria")}>
+              {statusSteps.map((s) => (
                 <button
                   key={s.id}
                   type="button"
@@ -618,19 +637,19 @@ export function LiveConsole({ authHeader }: Props) {
           {/* ora sul palco */}
           {performing ? (
             <section className="kg-card border-fuchsia-500/30 p-5 md:p-6">
-              <p className="text-xs font-medium uppercase tracking-[0.25em] text-fuchsia-400/90">🎤 Ora sul palco</p>
+              <p className="text-xs font-medium uppercase tracking-[0.25em] text-fuchsia-400/90">{t("admin.live.nowOnStage")}</p>
               <div className="mt-3 flex flex-wrap items-center justify-between gap-4">
                 <div>
                   <p className="font-display text-2xl font-semibold text-white">{performing.user.nickname}</p>
-                  <p className="mt-1 text-zinc-300">{bookingTitle(performing)}</p>
+                  <p className="mt-1 text-zinc-300">{bookingTitle(performing, defaultSongTitle)}</p>
                 </div>
                 <div className="flex items-center gap-4">
                   {performing.song?.source === "MIDI" && (
                     <MidiLiveControls
                       song={performing.song}
                       authHeader={authHeader}
-                      muteTitle="Silenzia un canale MIDI (es. Ch.04 voce guida). Effetto sul display entro ~2 s anche senza WebSocket."
-                      transposeTitle="Trasposizione in semitoni: ha effetto subito sul display, anche a brano in corso"
+                      muteTitle={t("admin.live.muteTitleLive")}
+                      transposeTitle={t("admin.live.transposeTitleLive")}
                       onMute={(track) => void setMutedTrack(performing.song!.id, track)}
                       onTranspose={(semitones) => void setTransposeSemitones(performing.song!.id, semitones)}
                     />
@@ -638,20 +657,22 @@ export function LiveConsole({ authHeader }: Props) {
                   {performing.song?.source === "YOUTUBE" && (
                     <TransposeLiveControl
                       transpose={performing.song.transposeSemitones ?? 0}
-                      title="Trasposizione in semitoni sul video: ha effetto subito sul display"
+                      title={t("admin.live.transposeTitleYoutubeLive")}
                       onTranspose={(semitones) => void setTransposeSemitones(performing.song!.id, semitones)}
                     />
                   )}
                   <p className="rounded-full border border-amber-500/40 bg-amber-500/10 px-4 py-2 text-amber-200">
                     ★ <span className="font-display text-xl font-semibold">{voteAvg != null ? voteAvg.toFixed(1) : "—"}</span>
-                    <span className="ml-2 text-xs text-amber-200/70">{voteCount} voti</span>
+                    <span className="ml-2 text-xs text-amber-200/70">
+                      {voteCount} {voteCount === 1 ? t("common.vote") : t("common.votes")}
+                    </span>
                   </p>
                   <button
                     type="button"
                     onClick={() => void end()}
                     className="rounded-xl bg-zinc-100 px-6 py-3 font-semibold text-zinc-900 hover:bg-white"
                   >
-                    ⏹ Concludi e dai il punteggio
+                    {t("admin.live.endPerformance")}
                   </button>
                 </div>
               </div>
@@ -659,7 +680,7 @@ export function LiveConsole({ authHeader }: Props) {
           ) : (
             lastScore !== null && (
               <p className="rounded-xl border border-fuchsia-500/30 bg-fuchsia-500/10 px-4 py-3 text-fuchsia-100">
-                Ultima esibizione: <span className="font-display text-lg font-semibold">{lastScore.toFixed(1)}</span> punti
+                {t("admin.live.lastPerformance", { score: lastScore.toFixed(1) })}
               </p>
             )
           )}
@@ -668,7 +689,7 @@ export function LiveConsole({ authHeader }: Props) {
           {pending.length > 0 && (
             <section className="kg-card border-amber-500/30 p-5 md:p-6">
               <p className="text-xs font-medium uppercase tracking-[0.25em] text-amber-300/90">
-                ✋ Richieste in attesa ({pending.length})
+                {t("admin.live.pendingRequests", { n: pending.length })}
               </p>
               <ul className="mt-4 space-y-3">
                 {pending.map((b) => {
@@ -685,8 +706,8 @@ export function LiveConsole({ authHeader }: Props) {
                       )}
                       <div className="min-w-0 flex-1">
                         <p className="font-medium text-white">{b.user.nickname}</p>
-                        <p className="truncate text-sm text-zinc-400" title={bookingTitle(b)}>
-                          {bookingTitle(b)}
+                        <p className="truncate text-sm text-zinc-400" title={bookingTitle(b, defaultSongTitle)}>
+                          {bookingTitle(b, defaultSongTitle)}
                         </p>
                         {b.ytUrl && (
                           <a
@@ -695,7 +716,7 @@ export function LiveConsole({ authHeader }: Props) {
                             rel="noreferrer"
                             className="text-xs text-red-300/80 underline-offset-2 hover:underline"
                           >
-                            guarda su YouTube ↗
+                            {t("admin.live.watchOnYoutube")}
                           </a>
                         )}
                       </div>
@@ -705,7 +726,7 @@ export function LiveConsole({ authHeader }: Props) {
                         onClick={() => void approve(b, true)}
                         className="rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-40"
                       >
-                        + In scaletta
+                        {t("admin.live.addToQueue")}
                       </button>
                       <button
                         type="button"
@@ -726,15 +747,14 @@ export function LiveConsole({ authHeader }: Props) {
           <section className="kg-card p-5 md:p-6">
             <div className="flex items-baseline justify-between gap-3">
               <p className="text-xs font-medium uppercase tracking-[0.25em] text-cyan-400/90">
-                📋 Scaletta ({upcoming.length})
+                {t("admin.live.schedule", { n: upcoming.length })}
               </p>
-              <p className="text-xs text-zinc-600">Trascina ⠿ per riordinare · si aggiorna da sola quando il pubblico prenota</p>
+              <p className="text-xs text-zinc-600">{t("admin.live.dragHint")}</p>
             </div>
 
             {upcoming.length === 0 ? (
               <p className="mt-6 text-center text-sm text-zinc-500">
-                Scaletta vuota. Il pubblico prenota dal telefono con il PIN{" "}
-                <span className="font-mono text-fuchsia-300">{event.joinCode}</span>.
+                {t("admin.live.emptyQueue", { pin: event.joinCode })}
               </p>
             ) : (
               <ul className="mt-4 space-y-3">
@@ -760,8 +780,8 @@ export function LiveConsole({ authHeader }: Props) {
                           onDragStart={(e) => handleQueueDragStart(e, b.id)}
                           onDragEnd={handleQueueDragEnd}
                           className="cursor-grab touch-none rounded px-1 py-1 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300 active:cursor-grabbing"
-                          title="Trascina per riordinare"
-                          aria-label="Trascina per riordinare"
+                          title={t("admin.live.dragToReorder")}
+                          aria-label={t("admin.live.dragToReorder")}
                         >
                           ⠿
                         </button>
@@ -776,26 +796,23 @@ export function LiveConsole({ authHeader }: Props) {
                               {b.user.nickname}
                               {b.ytUrl && (
                                 <span className="ml-2 rounded-full border border-red-500/40 bg-red-500/10 px-2 py-0.5 text-[10px] uppercase text-red-200/90">
-                                  video
+                                  {t("admin.live.badgeVideo")}
                                 </span>
                               )}
                               {b.status === "READY" && (
                                 <span className="ml-2 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[10px] uppercase text-emerald-200/90">
-                                  senza pubblicità
+                                  {t("admin.live.badgeNoAds")}
                                 </span>
                               )}
                               {b.status === "PROCESSING" && (
-                                <span className="ml-2 text-xs text-amber-300/90">download…</span>
+                                <span className="ml-2 text-xs text-amber-300/90">{t("admin.live.downloading")}</span>
                               )}
                             </p>
-                            <p className="mt-1 text-sm leading-relaxed text-zinc-400">{bookingTitle(b)}</p>
+                            <p className="mt-1 text-sm leading-relaxed text-zinc-400">{bookingTitle(b, defaultSongTitle)}</p>
                             {b.ytProcessError && (
                               <p className="mt-1 text-xs leading-relaxed text-red-400" title={b.ytProcessError}>
-                                Download fallito (partirà col player YouTube): {b.ytProcessError.slice(0, 120)}
-                                <span className="text-zinc-500">
-                                  {" "}
-                                  — spesso si risolve caricando i cookies in 🔧 Tecnico → YouTube
-                                </span>
+                                {t("admin.live.downloadFailed", { error: b.ytProcessError.slice(0, 120) })}
+                                <span className="text-zinc-500"> {t("admin.live.downloadFailedHint")}</span>
                               </p>
                             )}
                           </div>
@@ -803,7 +820,7 @@ export function LiveConsole({ authHeader }: Props) {
                             <button
                               type="button"
                               disabled={busy === b.id || Boolean(performing)}
-                              title={performing ? "C'è già qualcuno sul palco" : "Manda sul palco"}
+                              title={performing ? t("admin.live.stageOccupied") : t("admin.live.sendToStage")}
                               onClick={() => void start(b)}
                               className={`shrink-0 ${
                                 i === 0
@@ -811,7 +828,7 @@ export function LiveConsole({ authHeader }: Props) {
                                   : "rounded-xl border border-fuchsia-500/40 px-4 py-2 text-sm text-fuchsia-200 hover:bg-fuchsia-500/15 disabled:opacity-40"
                               }`}
                             >
-                              ▶ Sul palco
+                              {t("admin.live.onStage")}
                             </button>
                           )}
                         </div>
@@ -821,8 +838,8 @@ export function LiveConsole({ authHeader }: Props) {
                         <MidiLiveControls
                           song={b.song}
                           authHeader={authHeader}
-                          muteTitle="Silenzia un canale MIDI (es. Ch.04 voce guida)"
-                          transposeTitle="Trasposizione in semitoni per tutte le esecuzioni del brano"
+                          muteTitle={t("admin.live.muteTitleQueue")}
+                          transposeTitle={t("admin.live.transposeTitleQueue")}
                           onMute={(track) => void setMutedTrack(b.song!.id, track)}
                           onTranspose={(semitones) => void setTransposeSemitones(b.song!.id, semitones)}
                         />
@@ -830,14 +847,14 @@ export function LiveConsole({ authHeader }: Props) {
                       {b.song?.source === "YOUTUBE" && (
                         <TransposeLiveControl
                           transpose={b.song.transposeSemitones ?? 0}
-                          title="Trasposizione in semitoni per tutte le esecuzioni del video"
+                          title={t("admin.live.transposeTitleYoutubeQueue")}
                           onTranspose={(semitones) => void setTransposeSemitones(b.song!.id, semitones)}
                         />
                       )}
                       {b.ytUrl && (
                         <button
                           type="button"
-                          title="Rinomina il titolo del video"
+                          title={t("admin.live.renameVideoTitle")}
                           onClick={() => void renameVideo(b)}
                           className="rounded border border-zinc-700 px-2 py-2 text-xs text-zinc-300 hover:bg-zinc-800"
                         >
@@ -848,18 +865,18 @@ export function LiveConsole({ authHeader }: Props) {
                         <button
                           type="button"
                           disabled={busy === b.id}
-                          title="Scarica il video sul server: partirà senza pubblicità"
+                          title={t("admin.live.downloadVideoTitle")}
                           onClick={() => void downloadVideo(b)}
                           className="rounded-lg border border-emerald-500/50 px-2.5 py-2 text-xs text-emerald-200 hover:bg-emerald-900/40 disabled:opacity-40"
                         >
-                          no ads ⬇
+                          {t("admin.live.noAdsDownload")}
                         </button>
                       )}
                       <button
                         type="button"
                         onClick={() => void remove(b)}
                         className="rounded-lg border border-red-500/40 px-2 py-2 text-xs text-red-300 hover:bg-red-950/40"
-                        title="Togli dalla scaletta"
+                        title={t("admin.live.removeFromQueueTitle")}
                       >
                         🗑
                       </button>
@@ -876,7 +893,7 @@ export function LiveConsole({ authHeader }: Props) {
           {done.length > 0 && (
             <section className="kg-card p-5 md:p-6">
               <p className="text-xs font-medium uppercase tracking-[0.25em] text-zinc-500">
-                ✅ Già cantate ({done.length})
+                {t("admin.live.alreadySung", { n: done.length })}
               </p>
               <ul className="mt-3 space-y-2">
                 {done.map((b) => (
@@ -885,7 +902,7 @@ export function LiveConsole({ authHeader }: Props) {
                       <p className="truncate text-sm text-zinc-300">
                         <span className="font-medium text-white">{b.user.nickname}</span>
                         <span className="text-zinc-600"> · </span>
-                        {bookingTitle(b)}
+                        {bookingTitle(b, defaultSongTitle)}
                       </p>
                     </div>
                     {b.performance?.scoreTotal != null && (
@@ -896,11 +913,11 @@ export function LiveConsole({ authHeader }: Props) {
                     <button
                       type="button"
                       disabled={busy === b.id}
-                      title="Rimetti il brano in fondo alla scaletta"
+                      title={t("admin.live.replayTitle")}
                       onClick={() => void replay(b)}
                       className="shrink-0 rounded-lg border border-cyan-500/40 px-3 py-1.5 text-xs text-cyan-200 hover:bg-cyan-500/15 disabled:opacity-40"
                     >
-                      ↻ Ripeti
+                      {t("admin.live.replay")}
                     </button>
                   </li>
                 ))}

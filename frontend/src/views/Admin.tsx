@@ -7,6 +7,7 @@ import { MidiCatalogSection } from "../components/admin/MidiCatalogSection";
 import { MidiDebugSection } from "../components/admin/MidiDebugSection";
 import { SoundfontAdminSection } from "../components/admin/SoundfontAdminSection";
 import { YoutubeCookiesSection } from "../components/admin/YoutubeCookiesSection";
+import { useI18n } from "../i18n/context";
 
 const base = import.meta.env.VITE_API_URL ?? "";
 const ADMIN_TOKEN_KEY = "karaoke_admin_jwt";
@@ -14,6 +15,7 @@ const ADMIN_TOKEN_KEY = "karaoke_admin_jwt";
 type AdminMe = { id: string; username: string; role: "SUPERADMIN" | "ADMIN" };
 
 export function Admin() {
+  const { t } = useI18n();
   const [token, setToken] = useState<string | null>(() => localStorage.getItem(ADMIN_TOKEN_KEY));
   const [me, setMe] = useState<AdminMe | null>(null);
   const [checking, setChecking] = useState(true);
@@ -76,7 +78,7 @@ export function Admin() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setLoginErr((data as { error?: string }).error ?? "Accesso fallito");
+        setLoginErr((data as { error?: string }).error ?? t("admin.loginFailed"));
         return;
       }
       const d = data as { token: string; user: AdminMe };
@@ -99,7 +101,7 @@ export function Admin() {
   if (checking) {
     return (
       <div className="kg-page-bg flex min-h-dvh items-center justify-center">
-        <p className="text-sm text-zinc-500">Verifica accesso…</p>
+        <p className="text-sm text-zinc-500">{t("admin.checking")}</p>
       </div>
     );
   }
@@ -109,14 +111,14 @@ export function Admin() {
       <div className="kg-page-bg flex min-h-dvh flex-col items-center justify-center px-4">
         <div className="w-full max-w-sm">
           <header className="mb-8 text-center">
-            <p className="font-display text-xs uppercase tracking-[0.35em] text-cyan-400/90">Host</p>
-            <h1 className="font-display mt-3 text-3xl font-semibold tracking-tight text-white">Pannello serata</h1>
-            <p className="mt-3 text-sm text-zinc-400">Accesso riservato a chi conduce.</p>
+            <p className="font-display text-xs uppercase tracking-[0.35em] text-cyan-400/90">{t("admin.host")}</p>
+            <h1 className="font-display mt-3 text-3xl font-semibold tracking-tight text-white">{t("admin.panelTitle")}</h1>
+            <p className="mt-3 text-sm text-zinc-400">{t("admin.panelHint")}</p>
           </header>
 
           <form onSubmit={login} className="kg-card flex flex-col gap-4 p-6 shadow-2xl shadow-black/50">
             <label className="flex flex-col gap-1.5 text-sm">
-              <span className="text-zinc-400">Nome utente</span>
+              <span className="text-zinc-400">{t("admin.username")}</span>
               <input
                 className="rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2.5 outline-none ring-cyan-500/30 focus:ring-2"
                 value={username}
@@ -126,7 +128,7 @@ export function Admin() {
               />
             </label>
             <label className="flex flex-col gap-1.5 text-sm">
-              <span className="text-zinc-400">Password</span>
+              <span className="text-zinc-400">{t("admin.password")}</span>
               <input
                 type="password"
                 className="rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2.5 outline-none ring-cyan-500/30 focus:ring-2"
@@ -144,18 +146,14 @@ export function Admin() {
               disabled={loginBusy || !username.trim() || !password}
               className="font-display mt-1 rounded-xl bg-gradient-to-r from-cyan-600 to-cyan-500 px-4 py-3 font-semibold text-white transition hover:from-cyan-500 hover:to-cyan-400 disabled:opacity-40"
             >
-              {loginBusy ? "Accesso…" : "Entra"}
+              {loginBusy ? t("admin.loggingIn") : t("admin.login")}
             </button>
           </form>
 
-          <p className="mt-6 text-center text-xs text-zinc-600">
-            Primo avvio: <code className="rounded bg-zinc-800 px-1.5 py-0.5 text-zinc-400">admin</code> /{" "}
-            <code className="rounded bg-zinc-800 px-1.5 py-0.5 text-zinc-400">admin</code> — poi cambia la
-            password da Account.
-          </p>
+          <p className="mt-6 text-center text-xs text-zinc-600">{t("admin.firstLogin")}</p>
           <p className="mt-4 text-center text-sm text-zinc-600">
             <Link to="/join" className="hover:text-zinc-400">
-              ← Area pubblico
+              {t("admin.publicArea")}
             </Link>
           </p>
         </div>
@@ -171,9 +169,9 @@ export function Admin() {
         <header className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <p className="font-display text-xs uppercase tracking-[0.3em] text-cyan-400/90">
-              {isSuper ? "Super admin" : "Host"} · {me.username}
+              {isSuper ? t("admin.superAdmin") : t("admin.host")} · {me.username}
             </p>
-            <h1 className="font-display mt-1 text-2xl font-semibold text-white">La tua serata</h1>
+            <h1 className="font-display mt-1 text-2xl font-semibold text-white">{t("admin.yourEvent")}</h1>
           </div>
           <nav className="flex items-center gap-1 rounded-xl border border-zinc-800 bg-zinc-950/70 p-1 text-sm" role="tablist">
             <button
@@ -187,7 +185,7 @@ export function Admin() {
                   : "rounded-lg px-4 py-2 text-zinc-400 hover:text-white"
               }
             >
-              🎤 Conduzione
+              {t("admin.tabs.console")}
             </button>
             <button
               type="button"
@@ -200,7 +198,7 @@ export function Admin() {
                   : "rounded-lg px-4 py-2 text-zinc-400 hover:text-white"
               }
             >
-              🎵 Prenota
+              {t("admin.tabs.book")}
             </button>
             <button
               type="button"
@@ -213,7 +211,7 @@ export function Admin() {
                   : "rounded-lg px-4 py-2 text-zinc-500 hover:text-white"
               }
             >
-              📚 Catalogo
+              {t("admin.tabs.catalog")}
             </button>
             <button
               type="button"
@@ -226,7 +224,7 @@ export function Admin() {
                   : "rounded-lg px-4 py-2 text-zinc-500 hover:text-white"
               }
             >
-              👤 Account
+              {t("admin.tabs.account")}
             </button>
             <button
               type="button"
@@ -239,7 +237,7 @@ export function Admin() {
                   : "rounded-lg px-4 py-2 text-zinc-500 hover:text-white"
               }
             >
-              🔧 Tecnico
+              {t("admin.tabs.tech")}
             </button>
           </nav>
         </header>
@@ -255,10 +253,7 @@ export function Admin() {
 
           {tab === "tech" && (
             <div className="space-y-6">
-              <p className="text-sm text-zinc-500">
-                Timbro MIDI e impostazioni audio della serata. Durante la serata resta su{" "}
-                <strong className="text-zinc-300">Conduzione</strong>.
-              </p>
+              <p className="text-sm text-zinc-500">{t("admin.techIntro")}</p>
 
               <SoundfontAdminSection authHeader={authHeader} isSuper={isSuper} />
 
@@ -272,11 +267,11 @@ export function Admin() {
         <footer className="mt-10 flex flex-wrap items-center justify-between gap-3 border-t border-zinc-800/80 pt-6 text-sm text-zinc-600">
           <div>
             <Link to="/join" className="hover:text-zinc-400">
-              Area pubblico
+              {t("admin.footer.public")}
             </Link>
             <span className="mx-3 text-zinc-800">·</span>
             <Link to="/display" className="hover:text-zinc-400">
-              Schermo sala
+              {t("admin.footer.display")}
             </Link>
           </div>
           <button
@@ -284,7 +279,7 @@ export function Admin() {
             onClick={logout}
             className="rounded-lg border border-zinc-700 px-3 py-1.5 text-zinc-400 hover:border-red-500/50 hover:text-red-300"
           >
-            Esci ({me.username})
+            {t("admin.footer.logout", { user: me.username })}
           </button>
         </footer>
       </div>

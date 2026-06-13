@@ -1,4 +1,4 @@
-import { writeFile, readFile, access } from "node:fs/promises";
+import { writeFile, readFile, access, unlink } from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
 import type { FastifyInstance } from "fastify";
@@ -24,6 +24,55 @@ function normalizeCoverUrl(raw: string | null | undefined): string | null {
   } catch {
     return null;
   }
+}
+
+function canAdminManageSong(jwt: JwtPayload, song: { adminId: string | null }): boolean {
+  if (jwt.role === "superadmin") return true;
+  return song.adminId === jwt.sub;
+}
+
+async function deleteSongAssetFiles(song: {
+  midiPath: string | null;
+  lrcPath: string | null;
+  mp3Path: string | null;
+}): Promise<void> {
+  const root = getStorageRoot();
+  for (const rel of [song.midiPath, song.lrcPath, song.mp3Path]) {
+    if (!rel) continue;
+    try {
+      await unlink(path.join(root, rel));
+    } catch {
+      /* file già assente */
+    }
+  }
+}
+
+async function deleteCatalogSong(
+  songId: string,
+  jwt: JwtPayload
+): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
+  const song = await prisma.song.findUnique({ where: { id: songId } });
+  if (!song) {
+    return { ok: false, status: 404, error: "Canzone non trovata" };
+  }
+  if (song.source !== "MIDI") {
+    return { ok: false, status: 400, error: "Solo i brani MIDI del catalogo possono essere eliminati" };
+  }
+  if (!canAdminManageSong(jwt, song)) {
+    return { ok: false, status: 403, error: "Questo brano è di un altro admin" };
+  }
+  const performing = await prisma.booking.count({
+    where: { songId: song.id, status: "PERFORMING" },
+  });
+  if (performing > 0) {
+    return { ok: false, status: 409, error: "Brano in esibizione: non eliminabile ora" };
+  }
+  await prisma.$transaction([
+    prisma.booking.updateMany({ where: { songId: song.id }, data: { songId: null } }),
+    prisma.song.delete({ where: { id: song.id } }),
+  ]);
+  await deleteSongAssetFiles(song);
+  return { ok: true };
 }
 
 export async function registerSongRoutes(fastify: FastifyInstance): Promise<void> {
@@ -441,6 +490,48 @@ export async function registerSongRoutes(fastify: FastifyInstance): Promise<void
       });
 
       return reply.code(201).send(updated);
+    }
+  );
+
+  /** Elimina un brano MIDI dal catalogo (file + record). */
+  fastify.delete<{ Params: { id: string } }>(
+    "/admin/songs/:id",
+    { preHandler: [requireAdmin] },
+    async (request, reply) => {
+      const jwt = request.user as JwtPayload;
+      const result = await deleteCatalogSong(request.params.id, jwt);
+      if (!result.ok) {
+        return reply.code(result.status).send({ error: result.error });
+      }
+      return reply.send({ ok: true });
+    }
+  );
+
+  const bulkDeleteSchema = z.object({
+    ids: z.array(z.string().min(1)).min(1).max(500),
+  });
+
+  /** Elimina più brani MIDI dal catalogo in un'unica richiesta. */
+  fastify.post(
+    "/admin/songs/bulk-delete",
+    { preHandler: [requireAdmin] },
+    async (request, reply) => {
+      const parsed = bulkDeleteSchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.code(400).send({ error: "Lista ID non valida" });
+      }
+      const jwt = request.user as JwtPayload;
+      let deleted = 0;
+      const errors: string[] = [];
+      for (const id of parsed.data.ids) {
+        const result = await deleteCatalogSong(id, jwt);
+        if (result.ok) {
+          deleted += 1;
+        } else {
+          errors.push(`${id}: ${result.error}`);
+        }
+      }
+      return reply.send({ deleted, errors });
     }
   );
 }

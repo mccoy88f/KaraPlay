@@ -1,10 +1,11 @@
 import { useRef, useState } from "react";
 import JSZip from "jszip";
 import { extractMidiMeta } from "../../lib/midiMeta";
+import { useI18n } from "../../i18n/context";
 
 const base = import.meta.env.VITE_API_URL ?? "";
 
-type RowStatus = "in corso" | "ok" | "saltato" | "errore";
+type RowStatus = "running" | "ok" | "skipped" | "error";
 
 type LogRow = {
   file: string;
@@ -18,39 +19,42 @@ type LogRow = {
 
 type Props = {
   authHeader: () => Record<string, string>;
-  /** Nomi file (minuscoli) già in catalogo: si saltano per non duplicare. */
   existingFileNames: string[];
-  /** Chiamata a fine import per ricaricare la tabella del catalogo. */
   onDone: () => void;
 };
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
-function statusBadge(s: RowStatus): string {
-  switch (s) {
-    case "ok":
-      return "text-emerald-400";
-    case "saltato":
-      return "text-amber-300/90";
-    case "errore":
-      return "text-red-400";
-    default:
-      return "text-zinc-400";
-  }
-}
-
 /**
  * Importazione MIDI massiva: uno zip con dentro .mid/.midi/.kar.
- * Ogni file viene analizzato come nel caricamento singolo (titolo/artista/anno dai
- * metadati, lookup online opzionale per genere/anno) e caricato nel catalogo,
- * con un log riga per riga. I dati si correggono dopo, col ✏️ della tabella.
  */
 export function MidiBulkImport({ authHeader, existingFileNames, onDone }: Props) {
+  const { t } = useI18n();
   const [rows, setRows] = useState<LogRow[]>([]);
   const [running, setRunning] = useState(false);
   const [useLookup, setUseLookup] = useState(true);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
+
+  function statusLabel(s: RowStatus): string {
+    if (s === "running") return t("admin.bulkImport.statusRunning");
+    if (s === "ok") return t("admin.bulkImport.statusOk");
+    if (s === "skipped") return t("admin.bulkImport.statusSkipped");
+    return t("admin.bulkImport.statusError");
+  }
+
+  function statusBadge(s: RowStatus): string {
+    switch (s) {
+      case "ok":
+        return "text-emerald-400";
+      case "skipped":
+        return "text-amber-300/90";
+      case "error":
+        return "text-red-400";
+      default:
+        return "text-zinc-400";
+    }
+  }
 
   function patchRow(idx: number, patch: Partial<LogRow>) {
     setRows((prev) => prev.map((r, i) => (i === idx ? { ...r, ...patch } : r)));
@@ -66,7 +70,7 @@ export function MidiBulkImport({ authHeader, existingFileNames, onDone }: Props)
         (f) => !f.dir && /\.(mid|midi|kar)$/i.test(f.name) && !f.name.includes("__MACOSX")
       );
       if (entries.length === 0) {
-        setRows([{ file: zipFile.name, status: "errore", note: "Nessun .mid/.kar nello zip" }]);
+        setRows([{ file: zipFile.name, status: "error", note: t("admin.bulkImport.noMidiInZip") }]);
         return;
       }
 
@@ -76,21 +80,26 @@ export function MidiBulkImport({ authHeader, existingFileNames, onDone }: Props)
       for (let i = 0; i < entries.length; i++) {
         const entry = entries[i];
         const name = entry.name.split("/").pop() ?? entry.name;
-        setRows((prev) => [...prev, { file: name, status: "in corso" }]);
+        setRows((prev) => [...prev, { file: name, status: "running" }]);
         const idx = i;
 
         try {
           const buf = await entry.async("arraybuffer");
           const meta = extractMidiMeta(buf, name);
           const title = meta.title || name.replace(/\.(mid|midi|kar)$/i, "");
-          // l'upload richiede un artista: si corregge dopo col ✏️ in tabella
-          const artist = meta.artist || "Sconosciuto";
+          const artist = meta.artist || t("admin.bulkImport.unknownArtist");
           let year = meta.year;
           let genre: string | null = null;
           let coverUrl: string | null = null;
 
           if (existing.has(name.toLowerCase())) {
-            patchRow(idx, { status: "saltato", title, artist, year, note: "già in catalogo" });
+            patchRow(idx, {
+              status: "skipped",
+              title,
+              artist,
+              year,
+              note: t("admin.bulkImport.alreadyInCatalog"),
+            });
             setProgress({ done: i + 1, total: entries.length });
             continue;
           }
@@ -98,7 +107,7 @@ export function MidiBulkImport({ authHeader, existingFileNames, onDone }: Props)
           if (useLookup) {
             try {
               const qs = `title=${encodeURIComponent(title)}&artist=${encodeURIComponent(
-                artist === "Sconosciuto" ? "" : artist
+                artist === t("admin.bulkImport.unknownArtist") ? "" : artist
               )}`;
               const r = await fetch(`${base}/api/admin/songs-meta-lookup?${qs}`, {
                 headers: { ...authHeader() },
@@ -113,7 +122,6 @@ export function MidiBulkImport({ authHeader, existingFileNames, onDone }: Props)
                 if (!year && d.year) year = d.year;
                 coverUrl = d.coverUrl ?? null;
               }
-              // iTunes gradisce un ritmo gentile
               await sleep(350);
             } catch {
               /* senza lookup si importa comunque */
@@ -136,7 +144,7 @@ export function MidiBulkImport({ authHeader, existingFileNames, onDone }: Props)
           const data = await res.json().catch(() => ({}));
           if (!res.ok) {
             patchRow(idx, {
-              status: "errore",
+              status: "error",
               title,
               artist,
               note: (data as { error?: string }).error ?? `HTTP ${res.status}`,
@@ -149,16 +157,19 @@ export function MidiBulkImport({ authHeader, existingFileNames, onDone }: Props)
               artist,
               year,
               genre,
-              note: artist === "Sconosciuto" ? "artista da correggere" : undefined,
+              note:
+                artist === t("admin.bulkImport.unknownArtist")
+                  ? t("admin.bulkImport.fixArtist")
+                  : undefined,
             });
           }
         } catch (e) {
-          patchRow(idx, { status: "errore", note: e instanceof Error ? e.message : "file illeggibile" });
+          patchRow(idx, { status: "error", note: e instanceof Error ? e.message : "?" });
         }
         setProgress({ done: i + 1, total: entries.length });
       }
     } catch (e) {
-      setRows([{ file: zipFile.name, status: "errore", note: e instanceof Error ? e.message : "zip illeggibile" }]);
+      setRows([{ file: zipFile.name, status: "error", note: e instanceof Error ? e.message : "?" }]);
     } finally {
       setRunning(false);
       if (inputRef.current) inputRef.current.value = "";
@@ -167,18 +178,13 @@ export function MidiBulkImport({ authHeader, existingFileNames, onDone }: Props)
   }
 
   const okCount = rows.filter((r) => r.status === "ok").length;
-  const skipCount = rows.filter((r) => r.status === "saltato").length;
-  const errCount = rows.filter((r) => r.status === "errore").length;
+  const skipCount = rows.filter((r) => r.status === "skipped").length;
+  const errCount = rows.filter((r) => r.status === "error").length;
 
   return (
     <div className="mt-6 rounded-xl border border-cyan-500/25 bg-zinc-950/50 p-4 md:p-5">
-      <h3 className="font-display text-base font-semibold text-white">📦 Importazione MIDI massiva</h3>
-      <p className="mt-1 text-sm text-zinc-400">
-        Carica uno <strong className="text-zinc-300">zip</strong> con dentro file{" "}
-        <code className="rounded bg-zinc-800 px-1">.mid</code>/<code className="rounded bg-zinc-800 px-1">.kar</code>:
-        ogni file viene analizzato (titolo, artista, anno dai metadati) e importato in automatico, senza
-        compilare nulla. I dettagli si correggono dopo, col ✏️ in tabella.
-      </p>
+      <h3 className="font-display text-base font-semibold text-white">{t("admin.bulkImport.title")}</h3>
+      <p className="mt-1 text-sm text-zinc-400">{t("admin.bulkImport.intro")}</p>
 
       <div className="mt-4 flex flex-wrap items-center gap-4">
         <label
@@ -186,7 +192,7 @@ export function MidiBulkImport({ authHeader, existingFileNames, onDone }: Props)
             running ? "pointer-events-none opacity-50" : ""
           }`}
         >
-          {running ? "Importazione in corso…" : "Scegli file .zip"}
+          {running ? t("admin.bulkImport.running") : t("admin.bulkImport.chooseZip")}
           <input
             ref={inputRef}
             type="file"
@@ -207,13 +213,13 @@ export function MidiBulkImport({ authHeader, existingFileNames, onDone }: Props)
             disabled={running}
             className="accent-cyan-500"
           />
-          cerca anche genere/anno online (più lento)
+          {t("admin.bulkImport.lookupLabel")}
         </label>
       </div>
 
       {progress && (
         <p className="mt-4 text-sm text-zinc-300">
-          Elaborati <span className="font-mono">{progress.done}/{progress.total}</span>
+          {t("admin.bulkImport.progress", { done: progress.done, total: progress.total })}
           <span className="ml-3 text-emerald-400">✓ {okCount}</span>
           <span className="ml-2 text-amber-300/90">↷ {skipCount}</span>
           <span className="ml-2 text-red-400">✗ {errCount}</span>
@@ -226,12 +232,12 @@ export function MidiBulkImport({ authHeader, existingFileNames, onDone }: Props)
           <table className="w-full text-left text-xs text-zinc-300">
             <thead className="sticky top-0 bg-zinc-950">
               <tr className="border-b border-zinc-800 text-zinc-500">
-                <th className="px-2 py-1.5">File</th>
-                <th className="px-2 py-1.5">Esito</th>
-                <th className="px-2 py-1.5">Titolo</th>
-                <th className="px-2 py-1.5">Artista</th>
-                <th className="px-2 py-1.5">Anno</th>
-                <th className="px-2 py-1.5">Genere / note</th>
+                <th className="px-2 py-1.5">{t("admin.bulkImport.colFile")}</th>
+                <th className="px-2 py-1.5">{t("admin.bulkImport.colStatus")}</th>
+                <th className="px-2 py-1.5">{t("admin.bulkImport.colTitle")}</th>
+                <th className="px-2 py-1.5">{t("admin.bulkImport.colArtist")}</th>
+                <th className="px-2 py-1.5">{t("admin.bulkImport.colYear")}</th>
+                <th className="px-2 py-1.5">{t("admin.bulkImport.colNotes")}</th>
               </tr>
             </thead>
             <tbody>
@@ -240,7 +246,7 @@ export function MidiBulkImport({ authHeader, existingFileNames, onDone }: Props)
                   <td className="max-w-[12rem] truncate px-2 py-1.5 font-mono" title={r.file}>
                     {r.file}
                   </td>
-                  <td className={`px-2 py-1.5 font-medium ${statusBadge(r.status)}`}>{r.status}</td>
+                  <td className={`px-2 py-1.5 font-medium ${statusBadge(r.status)}`}>{statusLabel(r.status)}</td>
                   <td className="max-w-[12rem] truncate px-2 py-1.5" title={r.title}>
                     {r.title ?? "—"}
                   </td>

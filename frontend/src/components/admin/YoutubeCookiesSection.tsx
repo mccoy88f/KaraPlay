@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useI18n } from "../../i18n/context";
 
 const base = import.meta.env.VITE_API_URL ?? "";
 
@@ -15,6 +16,7 @@ type Props = {
 
 /** Cookies Netscape per yt-dlp: ricerca e download YouTube sul server. */
 export function YoutubeCookiesSection({ authHeader }: Props) {
+  const { t } = useI18n();
   const [cookies, setCookies] = useState<CookiesStatus | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -46,10 +48,10 @@ export function YoutubeCookiesSection({ authHeader }: Props) {
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      setErr((data as { error?: string }).error ?? "Upload fallito");
+      setErr((data as { error?: string }).error ?? t("admin.youtube.uploadFailed"));
       return;
     }
-    setMsg("Cookies salvati: yt-dlp li userà per ricerca e download delle tue serate.");
+    setMsg(t("admin.youtube.uploadOk"));
     await loadCookies();
   }
 
@@ -62,26 +64,18 @@ export function YoutubeCookiesSection({ authHeader }: Props) {
     });
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
-      setErr((data as { error?: string }).error ?? "Eliminazione fallita");
+      setErr((data as { error?: string }).error ?? t("admin.youtube.deleteFailed"));
       return;
     }
-    setMsg("Cookies personali rimossi.");
+    setMsg(t("admin.youtube.removed"));
     await loadCookies();
   }
 
   return (
     <section className="kg-card p-5 md:p-6">
-      <h2 className="font-display text-lg font-semibold text-white">Cookies YouTube (yt-dlp)</h2>
-      <p className="mt-2 text-sm text-zinc-400">
-        Servono solo se YouTube blocca ricerca o download dal server. Esporta un file{" "}
-        <strong className="text-zinc-300">cookies.txt</strong> in formato Netscape (estensione tipo
-        &quot;Get cookies.txt LOCALLY&quot; mentre sei loggato su youtube.com). yt-dlp li passa con{" "}
-        <code className="rounded bg-zinc-800 px-1 text-cyan-300">--cookies</code> quando presenti.
-      </p>
-      <p className="mt-2 text-sm text-zinc-500">
-        Priorità: file personale dell&apos;admin della serata →{" "}
-        <code className="text-zinc-400">YOUTUBE_COOKIES_PATH</code> → file condiviso legacy.
-      </p>
+      <h2 className="font-display text-lg font-semibold text-white">{t("admin.youtube.title")}</h2>
+      <p className="mt-2 text-sm text-zinc-400">{t("admin.youtube.intro")}</p>
+      <p className="mt-2 text-sm text-zinc-500">{t("admin.youtube.priority")}</p>
 
       {msg && <p className="mt-3 text-sm text-emerald-400">{msg}</p>}
       {err && <p className="mt-3 text-sm text-red-400">{err}</p>}
@@ -89,20 +83,20 @@ export function YoutubeCookiesSection({ authHeader }: Props) {
       <p className="mt-3 text-sm">
         {cookies?.configured ? (
           <span className="text-emerald-400">
-            ✓ Cookies caricati
+            {t("admin.youtube.loaded")}
             {cookies.mtime && <span className="text-zinc-500"> · {new Date(cookies.mtime).toLocaleString()}</span>}
           </span>
         ) : (
           <span className="text-zinc-500">
-            Nessun cookie personale.
-            {cookies?.fallback && <span> Si usa il ripiego {cookies.fallback}.</span>}
+            {t("admin.youtube.none")}
+            {cookies?.fallback && t("admin.youtube.fallback", { path: cookies.fallback })}
           </span>
         )}
       </p>
 
       <div className="mt-4 flex flex-wrap items-center gap-3">
         <label className="cursor-pointer rounded-xl border border-cyan-500/40 bg-cyan-500/10 px-5 py-2.5 text-sm font-medium text-cyan-100 hover:bg-cyan-500/20">
-          Carica cookies.txt
+          {t("admin.youtube.upload")}
           <input
             type="file"
             accept=".txt,text/plain"
@@ -116,7 +110,7 @@ export function YoutubeCookiesSection({ authHeader }: Props) {
             onClick={() => void deleteCookies()}
             className="rounded-xl border border-zinc-600 px-4 py-2.5 text-sm text-zinc-300 hover:bg-zinc-800"
           >
-            Rimuovi
+            {t("common.remove")}
           </button>
         )}
       </div>

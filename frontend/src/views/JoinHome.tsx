@@ -7,19 +7,21 @@ import { LeaderboardTab } from "../components/join/LeaderboardTab";
 import { ProfileTab } from "../components/join/ProfileTab";
 import { getStoredEvent, getStoredNickname, getStoredToken } from "../api/client";
 import { reconcileGuestSession } from "../lib/authSession";
+import { useI18n } from "../i18n/context";
 
 type Tab = "live" | "book" | "leaderboard" | "profile";
 
-const TABS: { id: Tab; label: string }[] = [
-  { id: "live", label: "🎤 Live" },
-  { id: "book", label: "🎵 Prenota" },
-  { id: "leaderboard", label: "🏆 Classifica" },
-  { id: "profile", label: "👤 Profilo" },
-];
-
 export function JoinHome() {
+  const { t } = useI18n();
   const [sessionOk, setSessionOk] = useState(false);
   const [tab, setTab] = useState<Tab>("book");
+
+  const TABS: { id: Tab; label: string }[] = [
+    { id: "live", label: t("join.tabs.live") },
+    { id: "book", label: t("join.tabs.book") },
+    { id: "leaderboard", label: t("join.tabs.leaderboard") },
+    { id: "profile", label: t("join.tabs.profile") },
+  ];
 
   useEffect(() => {
     setSessionOk(reconcileGuestSession());
@@ -36,7 +38,7 @@ export function JoinHome() {
     <div className="kg-page-bg min-h-dvh">
       <div className="mx-auto flex min-h-dvh max-w-lg flex-col gap-6 px-4 py-8 md:max-w-xl">
         <header className="text-center">
-          <p className="font-display text-xs uppercase tracking-[0.35em] text-fuchsia-400/90">Area pubblico</p>
+          <p className="font-display text-xs uppercase tracking-[0.35em] text-fuchsia-400/90">{t("join.areaPublic")}</p>
           <h1 className="font-display mt-3 text-3xl font-semibold tracking-tight text-white md:text-4xl">KaraPlay</h1>
           {token && event ? (
             <p className="mt-2 text-sm text-zinc-400">
@@ -44,14 +46,12 @@ export function JoinHome() {
               {nickname && (
                 <>
                   {" "}
-                  · sei <span className="text-zinc-200">{nickname}</span>
+                  · {t("join.youAre")} <span className="text-zinc-200">{nickname}</span>
                 </>
               )}
             </p>
           ) : (
-            <p className="mx-auto mt-3 max-w-md text-sm leading-relaxed text-zinc-400">
-              Entra con PIN e nickname per prenotare i brani, votare e commentare.
-            </p>
+            <p className="mx-auto mt-3 max-w-md text-sm leading-relaxed text-zinc-400">{t("join.enterHint")}</p>
           )}
         </header>
 
@@ -60,27 +60,27 @@ export function JoinHome() {
             to="/join/enter"
             className="font-display rounded-2xl bg-gradient-to-r from-fuchsia-600 to-fuchsia-500 px-6 py-4 text-center text-lg font-semibold text-white shadow-lg shadow-fuchsia-950/40 transition hover:from-fuchsia-500 hover:to-fuchsia-400"
           >
-            Entra nella serata
+            {t("join.enterEvent")}
           </Link>
         )}
 
         {token && event && (
           <>
             <nav className="grid grid-cols-4 gap-1 rounded-xl border border-zinc-800 bg-zinc-950/70 p-1 text-sm" role="tablist">
-              {TABS.map((t) => (
+              {TABS.map((tabItem) => (
                 <button
-                  key={t.id}
+                  key={tabItem.id}
                   type="button"
                   role="tab"
-                  aria-selected={tab === t.id}
-                  onClick={() => setTab(t.id)}
+                  aria-selected={tab === tabItem.id}
+                  onClick={() => setTab(tabItem.id)}
                   className={
-                    tab === t.id
+                    tab === tabItem.id
                       ? "rounded-lg bg-zinc-700/80 px-1 py-2 font-medium text-white"
                       : "rounded-lg px-1 py-2 text-zinc-500 hover:text-zinc-300"
                   }
                 >
-                  {t.label}
+                  {tabItem.label}
                 </button>
               ))}
             </nav>
@@ -100,7 +100,7 @@ export function JoinHome() {
           <nav className="flex items-center justify-between gap-4">
             <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
               <Link to="/join/enter" className="hover:text-white">
-                Cambia nickname
+                {t("join.footer.changeNickname")}
               </Link>
               {token && event && (
                 <>
@@ -112,15 +112,15 @@ export function JoinHome() {
                     target="_blank"
                     rel="noopener noreferrer"
                     className="hover:text-white"
-                    title="Testi e video sincronizzati al proiettore, senza audio"
+                    title={t("join.footer.gobboTitle")}
                   >
-                    Gobbo
+                    {t("join.footer.gobbo")}
                   </Link>
                 </>
               )}
             </div>
             <Link to="/admin" className="shrink-0 hover:text-white">
-              Admin
+              {t("common.admin")}
             </Link>
           </nav>
         </footer>

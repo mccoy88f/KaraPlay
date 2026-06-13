@@ -15,6 +15,7 @@ import {
 import type { QueueBookingDto } from "../lib/queueDisplay";
 import { MidiPreviewButton } from "./MidiPreviewButton";
 import { QueueOverview } from "./QueueOverview";
+import { useI18n } from "../i18n/context";
 
 const MIDI_PAGE = 40;
 const YT_PAGE = 10;
@@ -116,19 +117,21 @@ function BookPlusButton({
   disabled,
   onClick,
   variant = "midi",
+  t,
 }: {
   busy: boolean;
   disabled?: boolean;
   onClick: () => void;
   variant?: "midi" | "youtube";
+  t: (key: string) => string;
 }) {
   const blocked = busy || disabled;
   return (
     <button
       type="button"
       disabled={blocked}
-      aria-label="Prenota"
-      title={disabled ? "Prenotazioni non ancora aperte" : "Prenota"}
+      aria-label={t("book.book")}
+      title={disabled ? t("book.bookDisabled") : t("book.book")}
       onClick={onClick}
       className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-xl font-semibold leading-none text-white disabled:cursor-not-allowed disabled:opacity-40 ${
         variant === "youtube"
@@ -177,9 +180,12 @@ export function BookCatalogCore({
   bookMidi,
   bookYoutube,
   onBooked,
-  midiBookedMessage = (title) => `«${title}» aggiunta in coda.`,
-  ytBookedMessage = (title) => `«${title}» aggiunta in coda.`,
+  midiBookedMessage,
+  ytBookedMessage,
 }: BookCatalogCoreProps) {
+  const { t } = useI18n();
+  const midiMsg = midiBookedMessage ?? ((title: string) => t("book.added", { title }));
+  const ytMsg = ytBookedMessage ?? ((title: string) => t("book.ytAdded", { title }));
   const [q, setQ] = useState("");
   const [songs, setSongs] = useState<SongDto[]>([]);
   const [songsHasMore, setSongsHasMore] = useState(false);
@@ -249,7 +255,7 @@ export function BookCatalogCore({
         if (query !== songsQueryRef.current) return;
         if (!append) setSongs([]);
         setSongsHasMore(false);
-        setErr(e instanceof Error ? e.message : "Errore");
+        setErr(e instanceof Error ? e.message : t("common.error"));
       } finally {
         if (query === songsQueryRef.current) {
           setLoading(false);
@@ -295,7 +301,7 @@ export function BookCatalogCore({
     } catch (e2) {
       if (isAbortError(e2)) return;
       if (query !== ytQueryRef.current) return;
-      setErr(e2 instanceof Error ? e2.message : "Ricerca YouTube fallita");
+      setErr(e2 instanceof Error ? e2.message : t("common.error"));
       setYtResults([]);
       setYtHasMore(false);
       setYtQueryDone(query);
@@ -323,7 +329,7 @@ export function BookCatalogCore({
       setYtHasMore(data.hasMore);
     } catch (e) {
       if (query !== ytQueryRef.current) return;
-      setErr(e instanceof Error ? e.message : "Caricamento risultati fallito");
+      setErr(e instanceof Error ? e.message : t("common.error"));
     } finally {
       if (query === ytQueryRef.current) setYtLoadingMore(false);
     }
@@ -338,7 +344,7 @@ export function BookCatalogCore({
 
   async function book(song: SongDto) {
     if (!bookingsOpen) {
-      setErr("La serata è in preparazione: puoi cercare brani, le prenotazioni apriranno a breve.");
+      setErr(t("book.prepBookError"));
       return;
     }
     setErr(null);
@@ -346,11 +352,11 @@ export function BookCatalogCore({
     setBookingId(song.id);
     try {
       await bookMidi(song.id, song.title);
-      setMsg(midiBookedMessage(song.title));
+      setMsg(midiMsg(song.title));
       await loadQueue();
       onBooked?.();
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "Errore");
+      setErr(e instanceof Error ? e.message : t("common.error"));
     } finally {
       setBookingId(null);
     }
@@ -358,7 +364,7 @@ export function BookCatalogCore({
 
   async function bookYt(r: YoutubeSearchResult) {
     if (!bookingsOpen) {
-      setErr("La serata è in preparazione: puoi cercare brani, le prenotazioni apriranno a breve.");
+      setErr(t("book.prepBookError"));
       return;
     }
     setErr(null);
@@ -366,11 +372,11 @@ export function BookCatalogCore({
     setBookingId(r.id);
     try {
       await bookYoutube(r.url, r.title);
-      setMsg(ytBookedMessage(r.title));
+      setMsg(ytMsg(r.title));
       await loadQueue();
       onBooked?.();
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "Errore");
+      setErr(e instanceof Error ? e.message : t("common.error"));
     } finally {
       setBookingId(null);
     }
@@ -382,44 +388,38 @@ export function BookCatalogCore({
     <div className="p-5 md:p-6">
       <QueueOverview queue={queue} viewerUserId={viewerUserId} loading={queueLoading} />
 
-      <h2 className="font-display text-lg font-semibold text-white">Prenota un brano</h2>
+      <h2 className="font-display text-lg font-semibold text-white">{t("book.title")}</h2>
       <p className="mt-1 text-sm text-zinc-400">
-        Serata: <span className="text-zinc-200">{eventName}</span>
+        {t("book.event")}: <span className="text-zinc-200">{eventName}</span>
       </p>
 
       {assignBar && <div className="mt-4">{assignBar}</div>}
 
       {!bookingsOpen && (
         <p className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
-          Serata in <strong>preparazione</strong>: esplora il catalogo e cerca su YouTube. Le prenotazioni si
-          abilitano quando l&apos;host passa a «Prenotazioni aperte».
+          {t("book.prepBanner")}
         </p>
       )}
 
       <form className="mt-4 flex gap-2" onSubmit={(e) => void search(e)}>
         <input
           className="min-w-0 flex-1 rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 outline-none ring-fuchsia-500/30 focus:ring-2"
-          placeholder="Titolo, artista, file, genere, anno…"
+          placeholder={t("book.searchPlaceholder")}
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
         <button
           type="submit"
           disabled={ytSearching || q.trim().length < 2}
-          title="Cerca anche su YouTube"
+          title={t("book.searchYoutubeTitle")}
           className="shrink-0 rounded-lg bg-fuchsia-600 px-4 py-2 text-sm font-medium text-white hover:bg-fuchsia-500 disabled:opacity-50"
         >
-          {ytSearching ? "…" : "Cerca"}
+          {ytSearching ? "…" : t("book.search")}
         </button>
       </form>
-      <p className="mt-2 text-xs text-zinc-600">
-        Il catalogo <span className="rounded border border-amber-500/40 bg-amber-500/10 px-1 text-amber-200/90">MIDI</span>{" "}
-        si filtra mentre scrivi; con <strong className="text-zinc-400">Cerca</strong> arrivano anche i video{" "}
-        <span className="rounded border border-red-500/40 bg-red-500/10 px-1 text-red-200/90">YouTube</span>.
-        Usa <strong className="text-zinc-400">Carica altri</strong> per pagine aggiuntive.
-      </p>
+      <p className="mt-2 text-xs text-zinc-600">{t("book.searchHint")}</p>
 
-      {loading && songs.length === 0 && <p className="mt-3 text-sm text-zinc-500">Caricamento catalogo…</p>}
+      {loading && songs.length === 0 && <p className="mt-3 text-sm text-zinc-500">{t("book.loadingCatalog")}</p>}
       {err && <p className="mt-3 text-sm text-red-400">{err}</p>}
       {msg && <p className="mt-3 text-sm text-emerald-400">{msg}</p>}
 
@@ -453,7 +453,7 @@ export function BookCatalogCore({
                   </button>
                 </div>
                 <MidiPreviewButton songId={s.id} />
-                <BookPlusButton busy={bookingId === s.id} disabled={!bookingsOpen} onClick={() => void book(s)} />
+                <BookPlusButton busy={bookingId === s.id} disabled={!bookingsOpen} onClick={() => void book(s)} t={t} />
               </div>
               {expanded && <SongDetailPanel song={s} />}
             </li>
@@ -494,6 +494,7 @@ export function BookCatalogCore({
                   disabled={!bookingsOpen}
                   variant="youtube"
                   onClick={() => void bookYt(r)}
+                  t={t}
                 />
               </div>
               {ytPreviewId === r.id && (
@@ -520,7 +521,7 @@ export function BookCatalogCore({
               onClick={() => void loadMoreSongs()}
               className="rounded-lg border border-zinc-700 px-4 py-2 text-sm text-zinc-200 hover:bg-zinc-800 disabled:opacity-50"
             >
-              {songsLoadingMore ? "Carico…" : "Carica altri MIDI"}
+              {songsLoadingMore ? t("book.loadingMore") : t("book.loadMoreMidi")}
             </button>
           )}
           {showYt && ytHasMore && (
@@ -530,7 +531,7 @@ export function BookCatalogCore({
               onClick={() => void loadMoreYoutube()}
               className="rounded-lg border border-zinc-700 px-4 py-2 text-sm text-zinc-200 hover:bg-zinc-800 disabled:opacity-50"
             >
-              {ytLoadingMore ? "Carico…" : "Carica altri video YouTube"}
+              {ytLoadingMore ? t("book.loadingMore") : t("book.loadMoreYt")}
             </button>
           )}
         </div>
@@ -538,18 +539,20 @@ export function BookCatalogCore({
 
       {!loading && songs.length === 0 && !showYt && (
         <p className="mt-4 text-center text-sm text-zinc-500">
-          Nessun brano nel catalogo{q.trim() ? ` per «${q.trim()}»` : ""}. Premi{" "}
-          <strong className="text-zinc-300">Cerca</strong> per trovarlo su YouTube.
+          {t("book.noCatalog", {
+            q: q.trim() ? t("book.noCatalogQ", { q: q.trim() }) : "",
+          })}
         </p>
       )}
       {showYt && !ytSearching && songs.length === 0 && ytResults.length === 0 && (
-        <p className="mt-4 text-center text-sm text-zinc-500">Nessun risultato, né MIDI né YouTube.</p>
+        <p className="mt-4 text-center text-sm text-zinc-500">{t("book.noResults")}</p>
       )}
     </div>
   );
 }
 
 export function BookCatalog() {
+  const { t } = useI18n();
   const storedEvent = getStoredEvent();
   const eventId = storedEvent?.id ?? null;
   const viewerUserId = getStoredUserId();
@@ -581,7 +584,7 @@ export function BookCatalog() {
   if (!storedEvent || !eventId) {
     return (
       <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-100">
-        Nessuna serata in memoria. Vai a <strong>Entra nella serata</strong> con PIN e nickname.
+        {t("book.noSession")}
       </div>
     );
   }
@@ -598,7 +601,7 @@ export function BookCatalog() {
       bookYoutube={async (url, title) => {
         await apiBookYoutube(eventId, url, title);
       }}
-      ytBookedMessage={(title) => `«${title}» richiesta: in coda dopo l'ok di chi presenta.`}
+      ytBookedMessage={(title) => t("book.ytPending", { title })}
     />
   );
 }

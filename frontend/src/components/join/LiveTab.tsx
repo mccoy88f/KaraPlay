@@ -7,6 +7,7 @@ import {
   type CommentDto,
 } from "../../api/client";
 import { getEventSocket } from "../../lib/socket";
+import { useI18n } from "../../i18n/context";
 
 type LiveState = {
   performanceId: string;
@@ -18,6 +19,7 @@ type LiveState = {
 const QUICK_EMOJI = ["🔥", "❤️", "👏", "😂", "🎤", "⭐"];
 
 export function LiveTab({ eventId, userNickname }: { eventId: string; userNickname?: string }) {
+  const { t } = useI18n();
   const [live, setLive] = useState<LiveState>(null);
   const [avg, setAvg] = useState<number | null>(null);
   const [count, setCount] = useState(0);
@@ -120,9 +122,9 @@ export function LiveTab({ eventId, userNickname }: { eventId: string; userNickna
       setMyVote(pendingVote);
       setAvg(stats.count > 0 ? stats.avg : null);
       setCount(stats.count);
-      setMsg(`Voto ${pendingVote} registrato!`);
+      setMsg(t("live.voteRegistered", { n: pendingVote }));
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "Voto non registrato");
+      setErr(e instanceof Error ? e.message : t("live.voteError"));
     }
   }
 
@@ -135,20 +137,18 @@ export function LiveTab({ eventId, userNickname }: { eventId: string; userNickna
       await apiSendComment(live.performanceId, text, emoji);
       if (!emoji) setComment("");
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "Commento non inviato");
+      setErr(e instanceof Error ? e.message : t("live.commentError"));
     }
   }
 
   if (!live) {
     return (
       <div className="p-5 text-center md:p-6">
-        <h2 className="font-display text-lg font-semibold text-white">Nessuna esibizione in corso</h2>
-        <p className="mt-3 text-sm text-zinc-400">
-          Quando l&apos;host avvia un brano potrai votare e commentare da qui in tempo reale.
-        </p>
+        <h2 className="font-display text-lg font-semibold text-white">{t("live.noneTitle")}</h2>
+        <p className="mt-3 text-sm text-zinc-400">{t("live.noneHint")}</p>
         {lastScore !== null && (
           <p className="mx-auto mt-5 inline-block rounded-full border border-fuchsia-500/40 bg-fuchsia-500/10 px-5 py-2 text-fuchsia-100">
-            Ultimo punteggio: <span className="font-display font-semibold">{lastScore.toFixed(1)}</span>
+            {t("live.lastScore")}: <span className="font-display font-semibold">{lastScore.toFixed(1)}</span>
           </p>
         )}
       </div>
@@ -157,9 +157,9 @@ export function LiveTab({ eventId, userNickname }: { eventId: string; userNickna
 
   return (
     <div className="p-5 md:p-6">
-      <p className="text-xs uppercase tracking-[0.25em] text-fuchsia-400/90">In esibizione</p>
+      <p className="text-xs uppercase tracking-[0.25em] text-fuchsia-400/90">{t("live.onStage")}</p>
       <h2 className="font-display mt-2 text-xl font-semibold text-white">
-        {live.nickname} <span className="font-normal text-zinc-500">canta</span>
+        {live.nickname} <span className="font-normal text-zinc-500">{t("live.sings")}</span>
       </h2>
       <p className="mt-1 text-lg text-zinc-200">
         {live.title}
@@ -171,7 +171,7 @@ export function LiveTab({ eventId, userNickname }: { eventId: string; userNickna
           {avg != null ? avg.toFixed(1) : "—"}
         </span>
         <span className="text-sm text-zinc-500">
-          media live · {count} {count === 1 ? "voto" : "voti"}
+          {t("live.liveAvg")} · {count} {count === 1 ? t("common.vote") : t("common.votes")}
         </span>
       </div>
 
@@ -180,15 +180,18 @@ export function LiveTab({ eventId, userNickname }: { eventId: string; userNickna
 
       {isMine ? (
         <p className="mt-5 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-100">
-          <span className="font-semibold">È il tuo turno!</span> Sei sul palco — il pubblico sta votando per te. In
-          bocca al lupo! 🎤
+          <span className="font-semibold">{t("live.yourTurn")}</span> {t("live.onStageHint")}
         </p>
       ) : (
         <div className="mt-5">
           <label className="flex flex-col gap-2 text-sm" htmlFor="vote-slider">
             <span className="text-zinc-400">
-              Il tuo voto: <span className="font-display text-lg font-semibold text-white">{pendingVote}</span>
-              {myVote != null && <span className="ml-2 text-xs text-zinc-500">(inviato: {myVote})</span>}
+              {t("live.yourVote")}: <span className="font-display text-lg font-semibold text-white">{pendingVote}</span>
+              {myVote != null && (
+                <span className="ml-2 text-xs text-zinc-500">
+                  ({t("live.sent")}: {myVote})
+                </span>
+              )}
             </span>
             <input
               id="vote-slider"
@@ -206,13 +209,13 @@ export function LiveTab({ eventId, userNickname }: { eventId: string; userNickna
             onClick={() => void sendVote()}
             className="mt-3 w-full rounded-xl bg-fuchsia-600 px-5 py-3 text-sm font-semibold text-white hover:bg-fuchsia-500"
           >
-            {myVote != null ? "Aggiorna voto" : "Vota"}
+            {myVote != null ? t("live.updateVote") : t("live.voteBtn")}
           </button>
         </div>
       )}
 
       <div className="mt-6">
-        <p className="text-xs font-medium uppercase tracking-wider text-zinc-500">Commenta</p>
+        <p className="text-xs font-medium uppercase tracking-wider text-zinc-500">{t("live.comment")}</p>
         <div className="mt-2 flex flex-wrap gap-2">
           {QUICK_EMOJI.map((e) => (
             <button
@@ -234,7 +237,7 @@ export function LiveTab({ eventId, userNickname }: { eventId: string; userNickna
         >
           <input
             className="flex-1 rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm outline-none ring-fuchsia-500/30 focus:ring-2"
-            placeholder="Scrivi un commento (max 120)…"
+            placeholder={t("live.commentPlaceholder")}
             maxLength={120}
             value={comment}
             onChange={(e) => setComment(e.target.value)}
@@ -244,7 +247,7 @@ export function LiveTab({ eventId, userNickname }: { eventId: string; userNickna
             disabled={!comment.trim()}
             className="shrink-0 rounded-lg bg-zinc-700 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-600 disabled:opacity-40"
           >
-            Invia
+            {t("live.send")}
           </button>
         </form>
 
