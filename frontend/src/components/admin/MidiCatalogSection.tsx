@@ -16,11 +16,27 @@ export type SongDto = {
   year?: number | null;
   genre?: string | null;
   language?: string | null;
+  coverUrl?: string | null;
 };
 
 type Props = {
   authHeader: () => Record<string, string>;
 };
+
+function CoverPreview({ url }: { url: string }) {
+  if (!url.trim()) return null;
+  return (
+    <img
+      src={url.trim()}
+      alt=""
+      className="h-16 w-16 shrink-0 rounded-lg border border-zinc-700 object-cover"
+      loading="lazy"
+      onError={(e) => {
+        (e.target as HTMLImageElement).style.display = "none";
+      }}
+    />
+  );
+}
 
 export function MidiCatalogSection({ authHeader }: Props) {
   const [songs, setSongs] = useState<SongDto[]>([]);
@@ -29,11 +45,13 @@ export function MidiCatalogSection({ authHeader }: Props) {
   const [language, setLanguage] = useState("");
   const [year, setYear] = useState("");
   const [genre, setGenre] = useState("");
+  const [coverUrl, setCoverUrl] = useState("");
   const [lookupBusy, setLookupBusy] = useState(false);
+  const [editLookupBusy, setEditLookupBusy] = useState(false);
   const lookupSeqRef = useRef(0);
   /** Brano in modifica (pannello sotto la tabella). */
   const [editing, setEditing] = useState<SongDto | null>(null);
-  const [edit, setEdit] = useState({ title: "", artist: "", year: "", genre: "", language: "" });
+  const [edit, setEdit] = useState({ title: "", artist: "", year: "", genre: "", language: "", coverUrl: "" });
   const [editBusy, setEditBusy] = useState(false);
   const [midiFile, setMidiFile] = useState<File | null>(null);
   const [lrcFile, setLrcFile] = useState<File | null>(null);
@@ -109,17 +127,22 @@ export function MidiCatalogSection({ authHeader }: Props) {
     });
   }, [loadSongs]);
 
-  /** Genere/anno da iTunes (via backend): precompila i campi ancora vuoti. */
+  /** Genere/anno/copertina da iTunes (via backend): precompila i campi ancora vuoti. */
   const fetchMetaLookup = useCallback(
     async (
       lookupTitle: string,
       lookupArtist: string,
-      onResult: (data: { genre?: string | null; year?: number | null }) => void,
-      opts: { fillGenre: boolean; fillYear: boolean }
+      onResult: (data: {
+        genre?: string | null;
+        year?: number | null;
+        coverUrl?: string | null;
+      }) => void,
+      opts: { fillGenre: boolean; fillYear: boolean; fillCover: boolean; busy?: "upload" | "edit" }
     ) => {
-      if (!lookupTitle.trim() || (!opts.fillGenre && !opts.fillYear)) return;
+      if (!lookupTitle.trim() || (!opts.fillGenre && !opts.fillYear && !opts.fillCover)) return;
       const seq = ++lookupSeqRef.current;
-      setLookupBusy(true);
+      const setBusy = opts.busy === "edit" ? setEditLookupBusy : setLookupBusy;
+      setBusy(true);
       setErr(null);
       try {
         const qs = `title=${encodeURIComponent(lookupTitle.trim())}&artist=${encodeURIComponent(lookupArtist.trim())}`;
@@ -127,6 +150,7 @@ export function MidiCatalogSection({ authHeader }: Props) {
         const data = (await res.json().catch(() => ({}))) as {
           genre?: string | null;
           year?: number | null;
+          coverUrl?: string | null;
           error?: string;
         };
         if (seq !== lookupSeqRef.current) return;
@@ -135,21 +159,54 @@ export function MidiCatalogSection({ authHeader }: Props) {
           return;
         }
         onResult(data);
-        if (data.genre || data.year) {
-          setMsg(`Trovato online: ${[data.genre, data.year].filter(Boolean).join(" · ")}`);
+        if (data.genre || data.year || data.coverUrl) {
+          setMsg(
+            `Trovato online: ${[data.genre, data.year, data.coverUrl ? "copertina" : null].filter(Boolean).join(" · ")}`
+          );
         }
       } finally {
-        if (seq === lookupSeqRef.current) setLookupBusy(false);
+        if (seq === lookupSeqRef.current) setBusy(false);
       }
     },
     [authHeader]
   );
 
-  /** Lookup automatico nel form di caricamento: genere se vuoto, anno solo se mancante. */
+  async function retrieveEditMeta() {
+    if (!edit.title.trim()) {
+      setErr("Inserisci almeno il titolo prima di cercare online.");
+      return;
+    }
+    const fillGenre = !edit.genre.trim();
+    const fillYear = !edit.year.trim();
+    const fillCover = !edit.coverUrl.trim();
+    if (!fillGenre && !fillYear && !fillCover) {
+      setMsg(
+        "Genere, anno e copertina sono già compilati. Svuota i campi da correggere e riprova con titolo e artista aggiornati."
+      );
+      return;
+    }
+    setMsg(null);
+    await fetchMetaLookup(
+      edit.title,
+      edit.artist,
+      (data) => {
+        setEdit((cur) => ({
+          ...cur,
+          genre: data.genre && fillGenre ? data.genre : cur.genre,
+          year: data.year && fillYear ? String(data.year) : cur.year,
+          coverUrl: data.coverUrl && fillCover ? data.coverUrl : cur.coverUrl,
+        }));
+      },
+      { fillGenre, fillYear, fillCover, busy: "edit" }
+    );
+  }
+
+  /** Lookup automatico nel form di caricamento. */
   useEffect(() => {
     const fillGenre = !genre.trim();
     const fillYear = !year.trim();
-    if (!title.trim() || (!fillGenre && !fillYear)) return;
+    const fillCover = !coverUrl.trim();
+    if (!title.trim() || (!fillGenre && !fillYear && !fillCover)) return;
     const timer = window.setTimeout(() => {
       void fetchMetaLookup(
         title,
@@ -157,35 +214,13 @@ export function MidiCatalogSection({ authHeader }: Props) {
         (data) => {
           if (data.genre && fillGenre) setGenre(data.genre);
           if (data.year && fillYear) setYear(String(data.year));
+          if (data.coverUrl && fillCover) setCoverUrl(data.coverUrl);
         },
-        { fillGenre, fillYear }
+        { fillGenre, fillYear, fillCover }
       );
     }, 700);
     return () => window.clearTimeout(timer);
-  }, [title, artist, genre, year, fetchMetaLookup]);
-
-  /** Lookup automatico nel pannello modifica. */
-  useEffect(() => {
-    if (!editing) return;
-    const fillGenre = !edit.genre.trim();
-    const fillYear = !edit.year.trim();
-    if (!edit.title.trim() || (!fillGenre && !fillYear)) return;
-    const timer = window.setTimeout(() => {
-      void fetchMetaLookup(
-        edit.title,
-        edit.artist,
-        (data) => {
-          setEdit((cur) => ({
-            ...cur,
-            genre: data.genre && fillGenre ? data.genre : cur.genre,
-            year: data.year && fillYear ? String(data.year) : cur.year,
-          }));
-        },
-        { fillGenre, fillYear }
-      );
-    }, 700);
-    return () => window.clearTimeout(timer);
-  }, [editing, edit.title, edit.artist, edit.genre, edit.year, fetchMetaLookup]);
+  }, [title, artist, genre, year, coverUrl, fetchMetaLookup]);
 
   function scrollToCatalogRow(songId: string) {
     window.requestAnimationFrame(() => {
@@ -209,6 +244,7 @@ export function MidiCatalogSection({ authHeader }: Props) {
       year: s2.year != null ? String(s2.year) : "",
       genre: s2.genre ?? "",
       language: s2.language ?? "",
+      coverUrl: s2.coverUrl ?? "",
     });
   }
 
@@ -242,6 +278,7 @@ export function MidiCatalogSection({ authHeader }: Props) {
           year: Number.isInteger(y) ? y : null,
           genre: edit.genre.trim() || null,
           language: edit.language.trim() || null,
+          coverUrl: edit.coverUrl.trim() || null,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -274,6 +311,7 @@ export function MidiCatalogSection({ authHeader }: Props) {
     if (language.trim()) body.append("language", language.trim());
     if (year.trim()) body.append("year", year.trim());
     if (genre.trim()) body.append("genre", genre.trim());
+    if (coverUrl.trim()) body.append("coverUrl", coverUrl.trim());
     body.append("midi", midiFile);
     if (lrcFile) body.append("lrc", lrcFile);
     const res = await fetch(`${base}/api/admin/songs/upload`, {
@@ -293,6 +331,7 @@ export function MidiCatalogSection({ authHeader }: Props) {
     setLanguage("");
     setYear("");
     setGenre("");
+    setCoverUrl("");
     autoFillRef.current = { title: "", artist: "", year: "" };
     setMidiFile(null);
     setLrcFile(null);
@@ -362,11 +401,23 @@ export function MidiCatalogSection({ authHeader }: Props) {
             />
           </label>
           {lookupBusy && (
-            <p className="pb-2.5 text-xs text-cyan-300/80">Cerco genere/anno online…</p>
+            <p className="pb-2.5 text-xs text-cyan-300/80">Cerco metadati online…</p>
           )}
         </div>
+        <div className="flex flex-wrap items-start gap-3">
+          <label className="flex min-w-0 flex-1 flex-col gap-1 text-sm">
+            <span className="text-zinc-400">Copertina (URL, opzionale)</span>
+            <input
+              className="kg-input font-mono text-xs"
+              value={coverUrl}
+              onChange={(e) => setCoverUrl(e.target.value)}
+              placeholder="https://… (da iTunes se trovata)"
+            />
+          </label>
+          <CoverPreview url={coverUrl} />
+        </div>
         <p className="text-xs text-zinc-500">
-          Genere e anno si cercano automaticamente da titolo e artista (iTunes) se i campi sono vuoti.
+          Genere, anno e copertina si cercano da titolo e artista (iTunes) se i campi sono vuoti.
         </p>
         <div className="flex flex-wrap gap-4">
           <label className="cursor-pointer rounded-lg border border-cyan-500/40 bg-cyan-500/10 px-4 py-2 text-sm font-medium text-cyan-100 hover:bg-cyan-500/20">
@@ -513,6 +564,31 @@ export function MidiCatalogSection({ authHeader }: Props) {
               <span className="text-zinc-400">Lingua</span>
               <input className="kg-input" value={edit.language} onChange={(e) => setEdit({ ...edit, language: e.target.value })} placeholder="it" />
             </label>
+            <label className="flex flex-col gap-1 text-sm sm:col-span-2">
+              <span className="text-zinc-400">Copertina (URL)</span>
+              <div className="flex flex-wrap items-start gap-3">
+                <input
+                  className="kg-input min-w-0 flex-1 font-mono text-xs"
+                  value={edit.coverUrl}
+                  onChange={(e) => setEdit({ ...edit, coverUrl: e.target.value })}
+                  placeholder="https://… lascia vuoto per nessuna"
+                />
+                <CoverPreview url={edit.coverUrl} />
+              </div>
+            </label>
+          </div>
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              disabled={editLookupBusy || !edit.title.trim()}
+              onClick={() => void retrieveEditMeta()}
+              className="rounded-lg border border-cyan-500/40 bg-cyan-500/10 px-4 py-2 text-sm font-medium text-cyan-100 hover:bg-cyan-500/20 disabled:opacity-40"
+            >
+              {editLookupBusy ? "Cerco online…" : "Recupera informazioni"}
+            </button>
+            <p className="text-xs text-zinc-500">
+              Da titolo e artista (iTunes): copertina, genere e anno solo se vuoti.
+            </p>
           </div>
           <div className="mt-4 flex gap-2">
             <button type="submit" disabled={editBusy || !edit.title.trim() || !edit.artist.trim()} className="rounded-lg bg-fuchsia-600 px-4 py-2 text-sm font-semibold text-white hover:bg-fuchsia-500 disabled:opacity-40">

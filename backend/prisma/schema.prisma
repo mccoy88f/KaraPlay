@@ -104,6 +104,8 @@ model Song {
   year      Int?
   /** Genere musicale (lookup online o inserito a mano). */
   genre     String?
+  /** Copertina (URL esterno, di solito da iTunes Search al caricamento). */
+  coverUrl  String?
 
   admin    AdminUser? @relation(fields: [adminId], references: [id])
   bookings Booking[]

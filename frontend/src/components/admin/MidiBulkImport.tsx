@@ -87,6 +87,7 @@ export function MidiBulkImport({ authHeader, existingFileNames, onDone }: Props)
           const artist = meta.artist || "Sconosciuto";
           let year = meta.year;
           let genre: string | null = null;
+          let coverUrl: string | null = null;
 
           if (existing.has(name.toLowerCase())) {
             patchRow(idx, { status: "saltato", title, artist, year, note: "già in catalogo" });
@@ -103,9 +104,14 @@ export function MidiBulkImport({ authHeader, existingFileNames, onDone }: Props)
                 headers: { ...authHeader() },
               });
               if (r.ok) {
-                const d = (await r.json()) as { genre?: string | null; year?: number | null };
+                const d = (await r.json()) as {
+                  genre?: string | null;
+                  year?: number | null;
+                  coverUrl?: string | null;
+                };
                 genre = d.genre ?? null;
                 if (!year && d.year) year = d.year;
+                coverUrl = d.coverUrl ?? null;
               }
               // iTunes gradisce un ritmo gentile
               await sleep(350);
@@ -119,6 +125,7 @@ export function MidiBulkImport({ authHeader, existingFileNames, onDone }: Props)
           fd.append("artist", artist);
           if (year != null) fd.append("year", String(year));
           if (genre) fd.append("genre", genre);
+          if (coverUrl) fd.append("coverUrl", coverUrl);
           fd.append("midi", new File([buf], name, { type: "audio/midi" }));
 
           const res = await fetch(`${base}/api/admin/songs/upload`, {

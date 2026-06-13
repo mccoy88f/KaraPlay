@@ -13,6 +13,18 @@ import { ensureStorageLayout, getStorageRoot } from "../lib/storage.js";
 import type { JwtPayload } from "../types/jwt.js";
 import { getIo } from "../socket/io.js";
 import { analyzeMidiBuffer } from "../lib/midiDebug.js";
+import { lookupItunesSong } from "../services/itunes-lookup.service.js";
+
+function normalizeCoverUrl(raw: string | null | undefined): string | null {
+  if (!raw?.trim()) return null;
+  try {
+    const u = new URL(raw.trim());
+    if (u.protocol !== "http:" && u.protocol !== "https:") return null;
+    return u.toString();
+  } catch {
+    return null;
+  }
+}
 
 export async function registerSongRoutes(fastify: FastifyInstance): Promise<void> {
   /** Catalogo visto dal pubblico di una serata: i brani MIDI dell'admin che la gestisce. */
@@ -98,6 +110,7 @@ export async function registerSongRoutes(fastify: FastifyInstance): Promise<void
     year: z.number().int().min(1900).max(2100).nullable().optional(),
     genre: z.string().max(80).nullable().optional(),
     language: z.string().max(20).nullable().optional(),
+    coverUrl: z.string().max(2048).nullable().optional(),
   });
 
   /** Modifica dei metadati di un brano del catalogo (MIDI o video). */
@@ -126,6 +139,7 @@ export async function registerSongRoutes(fastify: FastifyInstance): Promise<void
           ...(d.year !== undefined ? { year: d.year } : {}),
           ...(d.genre !== undefined ? { genre: d.genre?.trim() || null } : {}),
           ...(d.language !== undefined ? { language: d.language?.trim() || null } : {}),
+          ...(d.coverUrl !== undefined ? { coverUrl: normalizeCoverUrl(d.coverUrl) } : {}),
         },
       });
       return reply.send(updated);
@@ -145,26 +159,18 @@ export async function registerSongRoutes(fastify: FastifyInstance): Promise<void
         return reply.code(400).send({ error: "Parametro title obbligatorio" });
       }
       const artist = request.query.artist?.trim() ?? "";
-      const term = encodeURIComponent(`${artist} ${title}`.trim());
       try {
-        const r = await fetch(
-          `https://itunes.apple.com/search?term=${term}&entity=song&limit=1`,
-          { signal: AbortSignal.timeout(6000) }
-        );
-        if (!r.ok) {
-          return reply.code(502).send({ error: `Lookup fallito (${r.status})` });
+        const hit = await lookupItunesSong(title, artist);
+        if (!hit) {
+          return reply.send({
+            genre: null,
+            year: null,
+            coverUrl: null,
+            foundTitle: null,
+            foundArtist: null,
+          });
         }
-        const j = (await r.json()) as {
-          results?: { primaryGenreName?: string; releaseDate?: string; trackName?: string; artistName?: string }[];
-        };
-        const hit = j.results?.[0];
-        const year = hit?.releaseDate ? Number.parseInt(hit.releaseDate.slice(0, 4), 10) : null;
-        return reply.send({
-          genre: hit?.primaryGenreName ?? null,
-          year: Number.isInteger(year) ? year : null,
-          foundTitle: hit?.trackName ?? null,
-          foundArtist: hit?.artistName ?? null,
-        });
+        return reply.send(hit);
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         return reply.code(502).send({ error: `Lookup non disponibile: ${msg}` });
@@ -331,6 +337,7 @@ export async function registerSongRoutes(fastify: FastifyInstance): Promise<void
       let year: number | null = null;
       let genre: string | null = null;
       let fileName: string | null = null;
+      let coverUrl: string | null = null;
       let midiBuf: Buffer | null = null;
       let lrcBuf: Buffer | null = null;
 
@@ -357,6 +364,9 @@ export async function registerSongRoutes(fastify: FastifyInstance): Promise<void
             const n = Number.parseInt(v, 10);
             year = Number.isInteger(n) && n >= 1900 && n <= 2100 ? n : null;
           }
+          if (part.fieldname === "coverUrl") {
+            coverUrl = normalizeCoverUrl(v);
+          }
         }
       }
 
@@ -365,6 +375,17 @@ export async function registerSongRoutes(fastify: FastifyInstance): Promise<void
       }
       if (!midiBuf || midiBuf.length === 0) {
         return reply.code(400).send({ error: "File MIDI obbligatorio" });
+      }
+
+      if (!coverUrl) {
+        try {
+          const hit = await lookupItunesSong(title, artist);
+          coverUrl = hit?.coverUrl ?? null;
+          if (!genre && hit?.genre) genre = hit.genre.slice(0, 80);
+          if (!year && hit?.year) year = hit.year;
+        } catch {
+          /* upload senza copertina se iTunes non risponde */
+        }
       }
 
       const root = getStorageRoot();
@@ -383,6 +404,7 @@ export async function registerSongRoutes(fastify: FastifyInstance): Promise<void
           year,
           genre,
           fileName,
+          coverUrl,
           tags: ["upload"],
         },
       });

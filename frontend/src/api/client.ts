@@ -114,6 +114,7 @@ export type SongDto = {
   fileName?: string | null;
   year?: number | null;
   genre?: string | null;
+  coverUrl?: string | null;
 };
 
 export async function apiSearchSongs(

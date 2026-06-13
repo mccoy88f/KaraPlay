@@ -36,6 +36,30 @@ function stripYoutubeFlags(query: string): string {
     .replace(/\s+/g, " ");
 }
 
+function SongCoverThumb({ url }: { url?: string | null }) {
+  if (url) {
+    return (
+      <img
+        src={url}
+        alt=""
+        className="h-12 w-12 shrink-0 rounded object-cover"
+        loading="lazy"
+        onError={(e) => {
+          (e.target as HTMLImageElement).style.visibility = "hidden";
+        }}
+      />
+    );
+  }
+  return (
+    <div
+      className="flex h-12 w-12 shrink-0 items-center justify-center rounded bg-amber-500/15 text-lg text-amber-200/80"
+      aria-hidden
+    >
+      🎵
+    </div>
+  );
+}
+
 export function BookCatalog() {
   const event = getStoredEvent();
   const [q, setQ] = useState("");
@@ -256,7 +280,8 @@ export function BookCatalog() {
 
       <ul className="mt-4 max-h-[26rem] space-y-2 overflow-y-auto">
         {songs.map((s) => (
-          <li key={s.id} className="flex items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-950/60 p-3">
+          <li key={s.id} className="flex items-center gap-3 rounded-lg border border-zinc-800 bg-zinc-950/60 p-3">
+            <SongCoverThumb url={s.coverUrl} />
             <div className="min-w-0 flex-1">
               <p className="truncate font-medium text-white">
                 {s.title}{" "}
