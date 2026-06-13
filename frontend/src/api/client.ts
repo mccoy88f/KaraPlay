@@ -319,20 +319,18 @@ export type YoutubeSearchResult = {
 };
 
 export async function apiSearchYoutube(
+  eventId: string,
   q: string,
   limit = 10,
   offset = 0,
   signal?: AbortSignal
 ): Promise<{ results: YoutubeSearchResult[]; hasMore: boolean }> {
-  const token = getStoredToken();
-  if (!token) throw new Error("Sessione scaduta: entra di nuovo");
   const params = new URLSearchParams({
     q: q.trim(),
     limit: String(limit),
     offset: String(offset),
   });
-  const res = await fetch(`${base}/api/youtube/search?${params}`, {
-    headers: { Authorization: `Bearer ${token}` },
+  const res = await fetch(`${base}/api/events/${encodeURIComponent(eventId)}/youtube/search?${params}`, {
     signal,
   });
   const data = await res.json().catch(() => ({}));

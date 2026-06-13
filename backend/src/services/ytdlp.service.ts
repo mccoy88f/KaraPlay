@@ -83,6 +83,23 @@ export type YoutubeSearchResult = {
 };
 
 /**
+ * Prepara la query yt-dlp: di default aggiunge «karaoke».
+ * Inserisci il flag `-karaoke` (es. `tutta l'italia -karaoke`) per cercare senza quella parola.
+ */
+export function withKaraokeSearchQuery(query: string): string {
+  const raw = /\b-karaoke\b/i.test(query);
+  let q = query
+    .replace(/\s+-karaoke\b/gi, " ")
+    .replace(/\b-karaoke\s+/gi, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+  if (raw) return q;
+  if (!q) return "karaoke";
+  if (/\bkaraoke\b/i.test(q)) return q;
+  return `${q} karaoke`;
+}
+
+/**
  * Ricerca su YouTube (yt-dlp ytsearch). --flat-playlist evita di risolvere ogni video: veloce,
  * ma la durata può mancare per alcuni risultati.
  */
@@ -92,6 +109,7 @@ export async function searchYoutube(
   offset = 0,
   cookiesAdminId?: string | null
 ): Promise<{ results: YoutubeSearchResult[]; hasMore: boolean }> {
+  const searchQ = withKaraokeSearchQuery(query);
   const lim = Math.min(Math.max(Math.trunc(limit), 1), 15);
   const off = Math.max(Math.trunc(offset), 0);
   const maxFetch = 50;
@@ -101,7 +119,7 @@ export async function searchYoutube(
     "--flat-playlist",
     "--no-warnings",
     ...cookiesArgs(cookiesAdminId),
-    `ytsearch${fetchCount}:${query}`,
+    `ytsearch${fetchCount}:${searchQ}`,
   ];
   const { stdout, stderr, code } = await runYtDlp(args);
   if (code !== 0) {

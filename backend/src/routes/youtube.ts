@@ -20,7 +20,42 @@ const previewSchema = z.object({
 });
 
 export async function registerYoutubeRoutes(fastify: FastifyInstance): Promise<void> {
-  /** Ricerca brani su YouTube per il pubblico (richiede join alla serata). */
+  /** Ricerca YouTube dal pubblico (come il catalogo MIDI: basta l'eventId, no JWT). */
+  fastify.get<{ Params: { eventId: string }; Querystring: { q?: string; limit?: string; offset?: string } }>(
+    "/events/:eventId/youtube/search",
+    async (request, reply) => {
+      const q = request.query.q?.trim();
+      if (!q || q.length < 2) {
+        return reply.code(400).send({ error: "Parametro q troppo corto (min 2 caratteri)" });
+      }
+      const limit = request.query.limit ? Number(request.query.limit) : 8;
+      const offset = request.query.offset ? Number(request.query.offset) : 0;
+      const event = await prisma.event.findUnique({
+        where: { id: request.params.eventId },
+        select: { id: true, status: true, adminId: true },
+      });
+      if (!event) {
+        return reply.code(404).send({ error: "Serata non trovata" });
+      }
+      if (event.status === "DRAFT" || event.status === "ENDED") {
+        return reply.code(403).send({ error: "Serata non accessibile" });
+      }
+      try {
+        const { results, hasMore } = await searchYoutube(
+          q,
+          Number.isFinite(limit) ? limit : 8,
+          Number.isFinite(offset) ? offset : 0,
+          event.adminId
+        );
+        return reply.send({ results, hasMore });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        return reply.code(502).send({ error: msg });
+      }
+    }
+  );
+
+  /** Ricerca brani su YouTube (legacy JWT): preferire /events/:eventId/youtube/search. */
   fastify.get<{ Querystring: { q?: string; limit?: string; offset?: string } }>(
     "/youtube/search",
     { preHandler: [requireJwt] },

@@ -27,6 +27,15 @@ function isAbortError(e: unknown): boolean {
   return e instanceof DOMException && e.name === "AbortError";
 }
 
+/** Rimuove `-karaoke` dalla stringa (flag solo per la ricerca YouTube). */
+function stripYoutubeFlags(query: string): string {
+  return query
+    .replace(/\s+-karaoke\b/gi, " ")
+    .replace(/\b-karaoke\s+/gi, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
 export function BookCatalog() {
   const event = getStoredEvent();
   const [q, setQ] = useState("");
@@ -92,7 +101,7 @@ export function BookCatalog() {
 
   useEffect(() => {
     if (!event) return;
-    const query = q.trim();
+    const query = stripYoutubeFlags(q.trim());
     const delay = query ? 400 : 0;
     const timer = window.setTimeout(() => {
       void loadSongs(query, 0, false);
@@ -105,6 +114,7 @@ export function BookCatalog() {
 
   async function search(e?: React.FormEvent) {
     e?.preventDefault();
+    if (!event) return;
     const query = q.trim();
     if (query.length < 2) return;
 
@@ -118,7 +128,7 @@ export function BookCatalog() {
     setYtSearching(true);
     setYtPreviewId(null);
     try {
-      const data = await apiSearchYoutube(query, YT_PAGE, 0, signal);
+      const data = await apiSearchYoutube(event.id, query, YT_PAGE, 0, signal);
       if (query !== ytQueryRef.current) return;
       setYtResults(data.results);
       setYtHasMore(data.hasMore);
@@ -137,10 +147,11 @@ export function BookCatalog() {
 
   async function loadMoreSongs() {
     if (!songsHasMore || songsLoadingMore || loading) return;
-    await loadSongs(songsQueryRef.current, songs.length, true);
+    await loadSongs(stripYoutubeFlags(songsQueryRef.current), songs.length, true);
   }
 
   async function loadMoreYoutube() {
+    if (!event) return;
     const query = q.trim();
     if (!showYt || !ytHasMore || ytLoadingMore || ytSearching || query.length < 2) return;
     if (query !== ytQueryRef.current) return;
@@ -148,7 +159,7 @@ export function BookCatalog() {
     setYtLoadingMore(true);
     setErr(null);
     try {
-      const data = await apiSearchYoutube(query, YT_PAGE, ytResults.length);
+      const data = await apiSearchYoutube(event.id, query, YT_PAGE, ytResults.length);
       if (query !== ytQueryRef.current) return;
       setYtResults((prev) => [...prev, ...data.results]);
       setYtHasMore(data.hasMore);
@@ -217,7 +228,7 @@ export function BookCatalog() {
       <form className="mt-4 flex gap-2" onSubmit={(e) => void search(e)}>
         <input
           className="min-w-0 flex-1 rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 outline-none ring-fuchsia-500/30 focus:ring-2"
-          placeholder="Titolo, artista, file, genere, anno…"
+          placeholder="Titolo, artista, file, genere, anno… (-karaoke su YouTube)"
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
@@ -233,7 +244,9 @@ export function BookCatalog() {
       <p className="mt-2 text-xs text-zinc-600">
         Il catalogo <span className="rounded border border-amber-500/40 bg-amber-500/10 px-1 text-amber-200/90">MIDI</span>{" "}
         si filtra mentre scrivi; con <strong className="text-zinc-400">Cerca</strong> arrivano anche i video{" "}
-        <span className="rounded border border-red-500/40 bg-red-500/10 px-1 text-red-200/90">YouTube</span>. Usa{" "}
+        <span className="rounded border border-red-500/40 bg-red-500/10 px-1 text-red-200/90">YouTube</span>{" "}
+        (si aggiunge «karaoke»; scrivi <code className="rounded bg-zinc-800 px-1">-karaoke</code> per
+        escluderlo). Usa{" "}
         <strong className="text-zinc-400">Carica altri</strong> per pagine aggiuntive.
       </p>
 

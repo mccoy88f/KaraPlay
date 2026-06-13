@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SoundfontSelect } from "../SoundfontSelect";
 import { getEventSocket } from "../../lib/socket";
 import type { SoundfontBankId } from "../../lib/soundfontBanks";
@@ -62,6 +62,14 @@ type MidiTrackOption = {
 function formatMuteChannelLabel(t: MidiTrackOption): string {
   const name = t.name !== "(senza nome)" ? t.name : t.instrumentName;
   return name ? `Ch.${t.channel} - ${name}` : `Ch.${t.channel}`;
+}
+
+function compareMuteChannels(a: MidiTrackOption, b: MidiTrackOption): number {
+  const nameA = a.name !== "(senza nome)" ? a.name : a.instrumentName;
+  const nameB = b.name !== "(senza nome)" ? b.name : b.instrumentName;
+  const byName = nameA.localeCompare(nameB, "it", { sensitivity: "base" });
+  if (byName !== 0) return byName;
+  return a.channel - b.channel;
 }
 
 function midiControlSelectClass(active: boolean) {
@@ -139,19 +147,22 @@ function MidiLiveControls({
     };
   }, [song.id, authHeader]);
 
-  const muteOptions =
-    tracks.length > 0
-      ? tracks
-      : Array.from({ length: 15 }, (_, i) => i + 1)
-          .filter((ch) => ch !== 10)
-          .map((ch) => ({
-            number: ch,
-            name: "",
-            channel: ch,
-            noteCount: 0,
-            isDrum: false,
-            instrumentName: "",
-          }));
+  const muteOptions = useMemo(() => {
+    const list =
+      tracks.length > 0
+        ? tracks
+        : Array.from({ length: 15 }, (_, i) => i + 1)
+            .filter((ch) => ch !== 10)
+            .map((ch) => ({
+              number: ch,
+              name: "",
+              channel: ch,
+              noteCount: 0,
+              isDrum: false,
+              instrumentName: "",
+            }));
+    return [...list].sort(compareMuteChannels);
+  }, [tracks]);
 
   return (
     <div className={`flex flex-wrap items-center gap-2 ${className}`}>
