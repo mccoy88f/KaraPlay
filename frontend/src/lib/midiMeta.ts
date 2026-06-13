@@ -80,13 +80,45 @@ function looksLikeTitle(s: string): boolean {
   return s.length >= 2 && s.length <= 80 && !/^@/.test(s);
 }
 
+function humanizeFileSegment(s: string): string {
+  return clean(s.replace(/_/g, " ").replace(/-/g, " "));
+}
+
+/** Nome file tipico karaoke: `Artista--Titolo.mid` o `Artista - Titolo.mid`. */
+function parseFileNameMeta(fileName?: string): { title: string; artist: string } {
+  if (!fileName) return { title: "", artist: "" };
+  const stem = fileName.replace(/\.(mid|midi|kar)$/i, "");
+  const double = /^(.+?)--(.+)$/.exec(stem);
+  if (double) {
+    return {
+      artist: humanizeFileSegment(double[1]),
+      title: humanizeFileSegment(double[2]),
+    };
+  }
+  const spaced = stem.replace(/_+/g, " ");
+  const single = /^(.{2,50}?)\s[-–]\s(.{2,80})$/.exec(spaced);
+  if (single) {
+    return { artist: clean(single[1]), title: clean(single[2]) };
+  }
+  return { title: humanizeFileSegment(stem), artist: "" };
+}
+
+/** Molti .kar mettono l'artista tra parentesi nelle prime righe del testo. */
+function extractArtistFromLyricLines(lines: { text: string }[]): string {
+  for (const l of lines.slice(0, 25)) {
+    const text = clean(l.text);
+    const m = /^\(([^()]{2,60})\)$/.exec(text);
+    if (m && looksLikeTitle(m[1])) return clean(m[1]);
+  }
+  return "";
+}
+
 export type MidiMeta = { title: string; artist: string; year: number | null };
 
 /**
  * Titolo e artista letti dal file MIDI/.kar, in ordine di affidabilità:
- * tag @T dei .kar (primo = titolo, secondo = artista) → nome della prima traccia
- * → prime righe del testo karaoke (molti file mettono lì "TITOLO" e "(ARTISTA)")
- * → nome del file. Sono solo proposte: l'utente le può correggere prima di salvare.
+ * tag @T → nome traccia → prime righe testo karaoke (artista spesso in «(…)») → nome file
+ * (es. `Artista--Titolo.mid`). Sono solo proposte: l'utente le può correggere prima di salvare.
  */
 export function extractMidiMeta(buf: ArrayBuffer, fileName?: string): MidiMeta {
   let title = "";
@@ -129,35 +161,28 @@ export function extractMidiMeta(buf: ArrayBuffer, fileName?: string): MidiMeta {
     }
   }
 
-  // prime righe del karaoke: spesso «"TITOLO"» e «(ARTISTA)»
+  // prime righe del karaoke: spesso «"TITOLO"» e «(ARTISTA)» (anche oltre la terza riga)
   if (!title || !artist) {
     try {
-      const lines = extractMidiLyrics(buf, new Midi(buf)).slice(0, 3);
-      if (!title && lines[0] && looksLikeTitle(clean(lines[0].text))) {
-        title = clean(lines[0].text);
-      }
-      if (!artist) {
-        for (const l of lines) {
-          const m = /^\(([^()]{2,40})\)$/.exec(clean(l.text));
-          if (m) {
-            artist = clean(m[1]);
+      const lines = extractMidiLyrics(buf, new Midi(buf));
+      if (!title) {
+        for (const l of lines.slice(0, 8)) {
+          const text = clean(l.text);
+          if (text && looksLikeTitle(text) && !/^\(.+\)$/.test(text)) {
+            title = text;
             break;
           }
         }
       }
+      if (!artist) artist = extractArtistFromLyricLines(lines);
     } catch {
       /* senza testi si passa al nome file */
     }
   }
 
-  if (!title && fileName) {
-    title = clean(
-      fileName
-        .replace(/\.(mid|midi|kar)$/i, "")
-        .replace(/[_]+/g, " ")
-        .replace(/\s*-\s*/g, " - ")
-    );
-  }
+  const fromFile = parseFileNameMeta(fileName);
+  if (!artist && fromFile.artist) artist = fromFile.artist;
+  if (!title && fromFile.title) title = fromFile.title;
 
   return { title, artist, year };
 }

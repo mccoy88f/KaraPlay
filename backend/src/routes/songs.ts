@@ -13,7 +13,7 @@ import { ensureStorageLayout, getStorageRoot } from "../lib/storage.js";
 import type { JwtPayload } from "../types/jwt.js";
 import { getIo } from "../socket/io.js";
 import { analyzeMidiBuffer } from "../lib/midiDebug.js";
-import { lookupItunesSong } from "../services/itunes-lookup.service.js";
+import { lookupItunesMidiMeta } from "../services/itunes-lookup.service.js";
 
 function normalizeCoverUrl(raw: string | null | undefined): string | null {
   if (!raw?.trim()) return null;
@@ -199,7 +199,7 @@ export async function registerSongRoutes(fastify: FastifyInstance): Promise<void
    * Genere/anno da iTunes Search (gratuita, senza chiave): il client la usa per
    * precompilare i campi. Fallisce in modo morbido se la rete non risponde.
    */
-  fastify.get<{ Querystring: { title?: string; artist?: string } }>(
+  fastify.get<{ Querystring: { title?: string; artist?: string; fileName?: string } }>(
     "/admin/songs-meta-lookup",
     { preHandler: [requireAdmin] },
     async (request, reply) => {
@@ -208,8 +208,9 @@ export async function registerSongRoutes(fastify: FastifyInstance): Promise<void
         return reply.code(400).send({ error: "Parametro title obbligatorio" });
       }
       const artist = request.query.artist?.trim() ?? "";
+      const fileName = request.query.fileName?.trim();
       try {
-        const hit = await lookupItunesSong(title, artist);
+        const hit = await lookupItunesMidiMeta({ title, artist, fileName });
         if (!hit) {
           return reply.send({
             genre: null,
@@ -428,7 +429,7 @@ export async function registerSongRoutes(fastify: FastifyInstance): Promise<void
 
       if (!coverUrl) {
         try {
-          const hit = await lookupItunesSong(title, artist);
+          const hit = await lookupItunesMidiMeta({ title, artist, fileName: fileName ?? undefined });
           coverUrl = hit?.coverUrl ?? null;
           if (!genre && hit?.genre) genre = hit.genre.slice(0, 80);
           if (!year && hit?.year) year = hit.year;

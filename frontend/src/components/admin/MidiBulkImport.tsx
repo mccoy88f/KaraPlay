@@ -10,11 +10,18 @@ type RowStatus = "running" | "ok" | "skipped" | "error";
 type LogRow = {
   file: string;
   status: RowStatus;
+  songId?: string;
   title?: string;
   artist?: string;
   year?: number | null;
   genre?: string | null;
   note?: string;
+};
+
+type CancelPrompt = {
+  importedIds: string[];
+  processed: number;
+  total: number;
 };
 
 type Props = {
@@ -34,7 +41,11 @@ export function MidiBulkImport({ authHeader, existingFileNames, onDone }: Props)
   const [running, setRunning] = useState(false);
   const [useLookup, setUseLookup] = useState(true);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  const [cancelPrompt, setCancelPrompt] = useState<CancelPrompt | null>(null);
+  const [undoBusy, setUndoBusy] = useState(false);
+  const [undoErr, setUndoErr] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const cancelRef = useRef(false);
 
   function statusLabel(s: RowStatus): string {
     if (s === "running") return t("admin.bulkImport.statusRunning");
@@ -60,10 +71,39 @@ export function MidiBulkImport({ authHeader, existingFileNames, onDone }: Props)
     setRows((prev) => prev.map((r, i) => (i === idx ? { ...r, ...patch } : r)));
   }
 
+  async function deleteImported(ids: string[]) {
+    if (ids.length === 0) return;
+    setUndoBusy(true);
+    try {
+      const res = await fetch(`${base}/api/admin/songs/bulk-delete`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeader() },
+        body: JSON.stringify({ ids }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error((data as { error?: string }).error ?? `HTTP ${res.status}`);
+      }
+    } finally {
+      setUndoBusy(false);
+    }
+  }
+
+  function finishImport() {
+    setCancelPrompt(null);
+    setUndoErr(null);
+    onDone();
+  }
+
   async function runImport(zipFile: File) {
     setRunning(true);
     setRows([]);
     setProgress(null);
+    setCancelPrompt(null);
+    cancelRef.current = false;
+    setUndoErr(null);
+    const importedIds: string[] = [];
+    let interrupted = false;
     try {
       const zip = await JSZip.loadAsync(zipFile);
       const entries = Object.values(zip.files).filter(
@@ -76,8 +116,14 @@ export function MidiBulkImport({ authHeader, existingFileNames, onDone }: Props)
 
       const existing = new Set(existingFileNames);
       setProgress({ done: 0, total: entries.length });
+      let processedCount = 0;
 
       for (let i = 0; i < entries.length; i++) {
+        if (cancelRef.current) {
+          interrupted = true;
+          break;
+        }
+
         const entry = entries[i];
         const name = entry.name.split("/").pop() ?? entry.name;
         setRows((prev) => [...prev, { file: name, status: "running" }]);
@@ -85,9 +131,14 @@ export function MidiBulkImport({ authHeader, existingFileNames, onDone }: Props)
 
         try {
           const buf = await entry.async("arraybuffer");
+          if (cancelRef.current) {
+            interrupted = true;
+            patchRow(idx, { status: "skipped", note: t("admin.bulkImport.cancelledRow") });
+            break;
+          }
           const meta = extractMidiMeta(buf, name);
           const title = meta.title || name.replace(/\.(mid|midi|kar)$/i, "");
-          const artist = meta.artist || t("admin.bulkImport.unknownArtist");
+          let artist = meta.artist || t("admin.bulkImport.unknownArtist");
           let year = meta.year;
           let genre: string | null = null;
           let coverUrl: string | null = null;
@@ -106,9 +157,9 @@ export function MidiBulkImport({ authHeader, existingFileNames, onDone }: Props)
 
           if (useLookup) {
             try {
-              const qs = `title=${encodeURIComponent(title)}&artist=${encodeURIComponent(
-                artist === t("admin.bulkImport.unknownArtist") ? "" : artist
-              )}`;
+              const qs = new URLSearchParams({ title });
+              if (artist !== t("admin.bulkImport.unknownArtist")) qs.set("artist", artist);
+              qs.set("fileName", name);
               const r = await fetch(`${base}/api/admin/songs-meta-lookup?${qs}`, {
                 headers: { ...authHeader() },
               });
@@ -117,15 +168,28 @@ export function MidiBulkImport({ authHeader, existingFileNames, onDone }: Props)
                   genre?: string | null;
                   year?: number | null;
                   coverUrl?: string | null;
+                  foundArtist?: string | null;
                 };
                 genre = d.genre ?? null;
                 if (!year && d.year) year = d.year;
                 coverUrl = d.coverUrl ?? null;
+                if (
+                  (!meta.artist || artist === t("admin.bulkImport.unknownArtist")) &&
+                  d.foundArtist?.trim()
+                ) {
+                  artist = d.foundArtist.trim();
+                }
               }
               await sleep(350);
             } catch {
               /* senza lookup si importa comunque */
             }
+          }
+
+          if (cancelRef.current) {
+            interrupted = true;
+            patchRow(idx, { status: "skipped", title, artist, note: t("admin.bulkImport.cancelledRow") });
+            break;
           }
 
           const fd = new FormData();
@@ -150,9 +214,12 @@ export function MidiBulkImport({ authHeader, existingFileNames, onDone }: Props)
               note: (data as { error?: string }).error ?? `HTTP ${res.status}`,
             });
           } else {
+            const songId = (data as { id?: string }).id;
+            if (songId) importedIds.push(songId);
             existing.add(name.toLowerCase());
             patchRow(idx, {
               status: "ok",
+              songId,
               title,
               artist,
               year,
@@ -166,14 +233,23 @@ export function MidiBulkImport({ authHeader, existingFileNames, onDone }: Props)
         } catch (e) {
           patchRow(idx, { status: "error", note: e instanceof Error ? e.message : "?" });
         }
-        setProgress({ done: i + 1, total: entries.length });
+        processedCount = i + 1;
+        setProgress({ done: processedCount, total: entries.length });
+      }
+
+      if (interrupted) {
+        setCancelPrompt({
+          importedIds: [...importedIds],
+          processed: processedCount,
+          total: entries.length,
+        });
       }
     } catch (e) {
       setRows([{ file: zipFile.name, status: "error", note: e instanceof Error ? e.message : "?" }]);
     } finally {
       setRunning(false);
       if (inputRef.current) inputRef.current.value = "";
-      onDone();
+      if (!interrupted) onDone();
     }
   }
 
@@ -215,7 +291,60 @@ export function MidiBulkImport({ authHeader, existingFileNames, onDone }: Props)
           />
           {t("admin.bulkImport.lookupLabel")}
         </label>
+        {running && (
+          <button
+            type="button"
+            onClick={() => {
+              cancelRef.current = true;
+            }}
+            className="rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-2.5 text-sm font-medium text-red-200 hover:bg-red-500/20"
+          >
+            {t("admin.bulkImport.stopBtn")}
+          </button>
+        )}
       </div>
+
+      {cancelPrompt && !running && (
+        <div className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
+          <p className="text-sm font-medium text-amber-100">{t("admin.bulkImport.cancelTitle")}</p>
+          <p className="mt-2 text-sm text-amber-100/80">
+            {t("admin.bulkImport.cancelHint", {
+              imported: cancelPrompt.importedIds.length,
+              processed: cancelPrompt.processed,
+              total: cancelPrompt.total,
+            })}
+          </p>
+          {undoErr && <p className="mt-2 text-sm text-red-300">{undoErr}</p>}
+          <div className="mt-4 flex flex-wrap gap-3">
+            <button
+              type="button"
+              disabled={undoBusy}
+              onClick={() => finishImport()}
+              className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-40"
+            >
+              {t("admin.bulkImport.keepBtn", { n: cancelPrompt.importedIds.length })}
+            </button>
+            <button
+              type="button"
+              disabled={undoBusy}
+              onClick={() =>
+                void (async () => {
+                  setUndoErr(null);
+                  try {
+                    await deleteImported(cancelPrompt.importedIds);
+                    finishImport();
+                  } catch (e) {
+                    setUndoErr(e instanceof Error ? e.message : t("admin.bulkImport.deleteFailed"));
+                  }
+                })()
+              }
+              className="rounded-lg border border-red-500/50 px-4 py-2 text-sm font-semibold text-red-200 hover:bg-red-900/30 disabled:opacity-40"
+            >
+              {undoBusy ? t("admin.bulkImport.deleting") : t("admin.bulkImport.deleteAllBtn", { n: cancelPrompt.importedIds.length })}
+            </button>
+          </div>
+        </div>
+      )}
 
       {progress && (
         <p className="mt-4 text-sm text-zinc-300">

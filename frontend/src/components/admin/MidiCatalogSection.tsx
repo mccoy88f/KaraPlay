@@ -218,30 +218,46 @@ export function MidiCatalogSection({ authHeader }: Props) {
     });
   }, [loadSongs]);
 
-  /** Genere/anno/copertina da iTunes (via backend): precompila i campi ancora vuoti. */
+  /** Genere/anno/copertina/artista da iTunes (via backend): precompila i campi ancora vuoti. */
   const fetchMetaLookup = useCallback(
     async (
       lookupTitle: string,
       lookupArtist: string,
+      fileName: string | undefined,
       onResult: (data: {
         genre?: string | null;
         year?: number | null;
         coverUrl?: string | null;
+        foundArtist?: string | null;
       }) => void,
-      opts: { fillGenre: boolean; fillYear: boolean; fillCover: boolean; busy?: "upload" | "edit" }
+      opts: {
+        fillGenre: boolean;
+        fillYear: boolean;
+        fillCover: boolean;
+        fillArtist: boolean;
+        busy?: "upload" | "edit";
+      }
     ) => {
-      if (!lookupTitle.trim() || (!opts.fillGenre && !opts.fillYear && !opts.fillCover)) return;
+      if (
+        !lookupTitle.trim() ||
+        (!opts.fillGenre && !opts.fillYear && !opts.fillCover && !opts.fillArtist)
+      ) {
+        return;
+      }
       const seq = ++lookupSeqRef.current;
       const setBusy = opts.busy === "edit" ? setEditLookupBusy : setLookupBusy;
       setBusy(true);
       setErr(null);
       try {
-        const qs = `title=${encodeURIComponent(lookupTitle.trim())}&artist=${encodeURIComponent(lookupArtist.trim())}`;
+        const qs = new URLSearchParams({ title: lookupTitle.trim() });
+        if (lookupArtist.trim()) qs.set("artist", lookupArtist.trim());
+        if (fileName) qs.set("fileName", fileName);
         const res = await fetch(`${base}/api/admin/songs-meta-lookup?${qs}`, { headers: { ...authHeader() } });
         const data = (await res.json().catch(() => ({}))) as {
           genre?: string | null;
           year?: number | null;
           coverUrl?: string | null;
+          foundArtist?: string | null;
           error?: string;
         };
         if (seq !== lookupSeqRef.current) return;
@@ -250,10 +266,15 @@ export function MidiCatalogSection({ authHeader }: Props) {
           return;
         }
         onResult(data);
-        if (data.genre || data.year || data.coverUrl) {
+        if (data.genre || data.year || data.coverUrl || data.foundArtist) {
           setMsg(
             t("admin.catalog.foundOnline", {
-              details: [data.genre, data.year, data.coverUrl ? t("admin.catalog.coverShort") : null]
+              details: [
+                data.foundArtist && opts.fillArtist ? data.foundArtist : null,
+                data.genre,
+                data.year,
+                data.coverUrl ? t("admin.catalog.coverShort") : null,
+              ]
                 .filter(Boolean)
                 .join(" · "),
             })
@@ -274,7 +295,8 @@ export function MidiCatalogSection({ authHeader }: Props) {
     const fillGenre = !edit.genre.trim();
     const fillYear = !edit.year.trim();
     const fillCover = !edit.coverUrl.trim();
-    if (!fillGenre && !fillYear && !fillCover) {
+    const fillArtist = !edit.artist.trim();
+    if (!fillGenre && !fillYear && !fillCover && !fillArtist) {
       setMsg(t("admin.catalog.retrieveFull"));
       return;
     }
@@ -282,15 +304,17 @@ export function MidiCatalogSection({ authHeader }: Props) {
     await fetchMetaLookup(
       edit.title,
       edit.artist,
+      editing?.fileName ?? undefined,
       (data) => {
         setEdit((cur) => ({
           ...cur,
+          artist: data.foundArtist && fillArtist ? data.foundArtist : cur.artist,
           genre: data.genre && fillGenre ? data.genre : cur.genre,
           year: data.year && fillYear ? String(data.year) : cur.year,
           coverUrl: data.coverUrl && fillCover ? data.coverUrl : cur.coverUrl,
         }));
       },
-      { fillGenre, fillYear, fillCover, busy: "edit" }
+      { fillGenre, fillYear, fillCover, fillArtist, busy: "edit" }
     );
   }
 
@@ -299,21 +323,27 @@ export function MidiCatalogSection({ authHeader }: Props) {
     const fillGenre = !genre.trim();
     const fillYear = !year.trim();
     const fillCover = !coverUrl.trim();
-    if (!title.trim() || (!fillGenre && !fillYear && !fillCover)) return;
+    const fillArtist = !artist.trim();
+    if (!title.trim() || (!fillGenre && !fillYear && !fillCover && !fillArtist)) return;
     const timer = window.setTimeout(() => {
       void fetchMetaLookup(
         title,
         artist,
+        midiFile?.name,
         (data) => {
+          if (data.foundArtist && fillArtist) {
+            autoFillRef.current.artist = data.foundArtist;
+            setArtist(data.foundArtist);
+          }
           if (data.genre && fillGenre) setGenre(data.genre);
           if (data.year && fillYear) setYear(String(data.year));
           if (data.coverUrl && fillCover) setCoverUrl(data.coverUrl);
         },
-        { fillGenre, fillYear, fillCover }
+        { fillGenre, fillYear, fillCover, fillArtist }
       );
     }, 700);
     return () => window.clearTimeout(timer);
-  }, [title, artist, genre, year, coverUrl, fetchMetaLookup]);
+  }, [title, artist, genre, year, coverUrl, midiFile?.name, fetchMetaLookup]);
 
   function scrollToCatalogRow(songId: string) {
     window.requestAnimationFrame(() => {
