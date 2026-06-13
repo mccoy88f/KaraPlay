@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SoundfontSelect } from "../SoundfontSelect";
 import { getEventSocket } from "../../lib/socket";
 import type { SoundfontBankId } from "../../lib/soundfontBanks";
-import { getSoundfontBank, isSf2BankId } from "../../lib/soundfontBanks";
+import { getSoundfontBank, isSf2BankId, SF2_MAX_UPLOAD_BYTES, SF2_MAX_UPLOAD_LABEL } from "../../lib/soundfontBanks";
+import { uploadFormWithProgress } from "../../lib/uploadWithProgress";
 import { youtubeVideoId } from "../YoutubeEmbed";
 
 const base = import.meta.env.VITE_API_URL ?? "";
@@ -222,6 +223,7 @@ export function LiveConsole({ authHeader, isSuper }: Props) {
   const [sfStatus, setSfStatus] = useState<{ present: number; total: number; ready: boolean } | null>(null);
   const [sfSyncing, setSfSyncing] = useState(false);
   const [sf2Uploading, setSf2Uploading] = useState(false);
+  const [sf2UploadPct, setSf2UploadPct] = useState<number | null>(null);
   const sf2InputRef = useRef<HTMLInputElement | null>(null);
 
   const event = events.find((e) => e.id === eventId) ?? null;
@@ -533,25 +535,39 @@ export function LiveConsole({ authHeader, isSuper }: Props) {
   }
 
   async function uploadSf2(file: File) {
-    setSf2Uploading(true);
     setErr(null);
+    setMsg(null);
+    if (file.size > SF2_MAX_UPLOAD_BYTES) {
+      setErr(`File troppo grande: ${formatMB(file.size)} (max ${SF2_MAX_UPLOAD_LABEL}).`);
+      if (sf2InputRef.current) sf2InputRef.current.value = "";
+      return;
+    }
+    setSf2Uploading(true);
+    setSf2UploadPct(0);
     try {
       const form = new FormData();
       form.append("file", file);
-      const res = await fetch(`${base}/api/admin/soundfonts/sf2/upload`, {
-        method: "POST",
-        headers: { ...authHeader() },
-        body: form,
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setErr((data as { error?: string }).error ?? "Upload fallito");
+      const { status, data } = await uploadFormWithProgress(
+        `${base}/api/admin/soundfonts/sf2/upload`,
+        form,
+        authHeader(),
+        setSf2UploadPct
+      );
+      if (status === 413) {
+        setErr(`File troppo grande (max ${SF2_MAX_UPLOAD_LABEL}).`);
         return;
       }
-      setMsg(`SoundFont «${file.name}» caricato: selezionalo come timbro.`);
+      if (!status || status >= 400) {
+        setErr(typeof data.error === "string" ? data.error : "Upload fallito");
+        return;
+      }
+      setMsg(`SoundFont «${file.name}» caricato (${formatMB(file.size)}): selezionalo come timbro.`);
       await loadSf2Files();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Upload fallito");
     } finally {
       setSf2Uploading(false);
+      setSf2UploadPct(null);
       if (sf2InputRef.current) sf2InputRef.current.value = "";
     }
   }
@@ -1030,22 +1046,36 @@ export function LiveConsole({ authHeader, isSuper }: Props) {
                     {sf2Files.length === 0 && <li className="text-xs text-zinc-600">Nessun file caricato.</li>}
                   </ul>
                   {isSuper ? (
-                    <label className="mt-3 inline-block">
-                      <span className="cursor-pointer rounded-lg border border-fuchsia-500/40 bg-fuchsia-500/15 px-3 py-2 text-sm text-fuchsia-100 hover:bg-fuchsia-500/25">
-                        {sf2Uploading ? "Caricamento…" : "Carica .sf2"}
-                      </span>
-                      <input
-                        ref={sf2InputRef}
-                        type="file"
-                        accept=".sf2,.sf3"
-                        disabled={sf2Uploading}
-                        className="hidden"
-                        onChange={(e) => {
-                          const f = e.target.files?.[0];
-                          if (f) void uploadSf2(f);
-                        }}
-                      />
-                    </label>
+                    <div className="mt-3">
+                      <label className="inline-block">
+                        <span className="cursor-pointer rounded-lg border border-fuchsia-500/40 bg-fuchsia-500/15 px-3 py-2 text-sm text-fuchsia-100 hover:bg-fuchsia-500/25">
+                          {sf2Uploading ? `Caricamento… ${sf2UploadPct ?? 0}%` : "Carica .sf2"}
+                        </span>
+                        <input
+                          ref={sf2InputRef}
+                          type="file"
+                          accept=".sf2,.sf3"
+                          disabled={sf2Uploading}
+                          className="hidden"
+                          onChange={(e) => {
+                            const f = e.target.files?.[0];
+                            if (f) void uploadSf2(f);
+                          }}
+                        />
+                      </label>
+                      <p className="mt-2 text-xs text-zinc-600">Max {SF2_MAX_UPLOAD_LABEL} per file.</p>
+                      {sf2Uploading && sf2UploadPct != null && (
+                        <div className="mt-2 max-w-xs">
+                          <div className="h-2 overflow-hidden rounded-full bg-zinc-800">
+                            <div
+                              className="h-full rounded-full bg-fuchsia-500 transition-[width] duration-150"
+                              style={{ width: `${sf2UploadPct}%` }}
+                            />
+                          </div>
+                          <p className="mt-1 text-xs text-zinc-500">{sf2UploadPct}%</p>
+                        </div>
+                      )}
+                    </div>
                   ) : (
                     <p className="mt-3 text-xs text-zinc-600">
                       Caricamento ed eliminazione gestiti dal super admin.

@@ -37,7 +37,7 @@ export async function buildApp() {
 
   await app.register(cors, { origin: true, credentials: true });
   await app.register(multipart, {
-    limits: { fileSize: 15 * 1024 * 1024 },
+    limits: { fileSize: 500 * 1024 * 1024 },
   });
   await app.register(jwt, {
     secret: jwtSecret,

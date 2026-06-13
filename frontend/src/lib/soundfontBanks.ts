@@ -48,6 +48,10 @@ export const SOUNDFONT_BANKS: SoundfontBankMeta[] = [
 
 export const SF2_BANK_PREFIX = "sf2:";
 
+/** Limite upload .sf2/.sf3 (allineato al backend). */
+export const SF2_MAX_UPLOAD_BYTES = 500 * 1024 * 1024;
+export const SF2_MAX_UPLOAD_LABEL = "500 MB";
+
 export function isSf2BankId(id: string | null | undefined): boolean {
   return typeof id === "string" && id.startsWith(SF2_BANK_PREFIX) && id.length > SF2_BANK_PREFIX.length;
 }

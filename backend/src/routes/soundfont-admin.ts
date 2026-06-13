@@ -10,8 +10,8 @@ import { ensureStorageLayout, getSf2Dir } from "../lib/storage.js";
 
 const bankIds = ["fluid_r3", "musyng_kite", "fatboy"] as const;
 
-/** I banchi GM completi (es. FluidR3) superano i 100MB. */
-const SF2_MAX_BYTES = 400 * 1024 * 1024;
+/** Limite upload SoundFont (.sf2/.sf3) — allineato a nginx e multipart. */
+export const SF2_MAX_UPLOAD_BYTES = 500 * 1024 * 1024;
 
 export async function registerSoundfontAdminRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.get<{ Params: { bankId: string } }>(
@@ -68,7 +68,7 @@ export async function registerSoundfontAdminRoutes(fastify: FastifyInstance): Pr
 
   /** Upload di un file SoundFont (multipart, field name: file). */
   fastify.post("/admin/soundfonts/sf2/upload", { preHandler: [requireSuperAdmin] }, async (request, reply) => {
-    const file = await request.file({ limits: { fileSize: SF2_MAX_BYTES } });
+    const file = await request.file({ limits: { fileSize: SF2_MAX_UPLOAD_BYTES } });
     if (!file) {
       return reply.code(400).send({ error: "Nessun file (field name: file)" });
     }
@@ -93,7 +93,7 @@ export async function registerSoundfontAdminRoutes(fastify: FastifyInstance): Pr
     }
     if (file.file.truncated) {
       await unlink(dest);
-      return reply.code(400).send({ error: `File troppo grande (max ${SF2_MAX_BYTES / (1024 * 1024)}MB)` });
+      return reply.code(400).send({ error: `File troppo grande (max ${SF2_MAX_UPLOAD_BYTES / (1024 * 1024)}MB)` });
     }
     const s = await stat(dest);
     return reply.send({ ok: true, file: name, size: s.size, bankId: `sf2:${name}` });
