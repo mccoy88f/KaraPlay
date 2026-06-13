@@ -76,7 +76,6 @@ enum AdminRole {
 enum EventStatus {
   DRAFT
   OPEN
-  LIVE
   ENDED
 }
 

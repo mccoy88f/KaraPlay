@@ -95,9 +95,14 @@ export async function registerBookingRoutes(fastify: FastifyInstance): Promise<v
             "Serata non trovata. Esci e rientra con il PIN aggiornato (evento o database potrebbero essere cambiati).",
         });
       }
-      if (event.status !== "OPEN" && event.status !== "LIVE") {
+      if (event.status === "DRAFT") {
         return reply.code(403).send({
-          error: `Prenotazioni chiuse: la serata è in stato «${event.status}». L'host deve impostarla su APERTA o LIVE dal pannello admin.`,
+          error: "La serata è in preparazione: puoi esplorare il catalogo, le prenotazioni apriranno a breve.",
+        });
+      }
+      if (event.status !== "OPEN") {
+        return reply.code(403).send({
+          error: `Prenotazioni chiuse: la serata è in stato «${event.status}».`,
         });
       }
 

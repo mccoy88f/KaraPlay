@@ -82,9 +82,9 @@ export async function registerAdminBookingRoutes(fastify: FastifyInstance): Prom
       if (!event) {
         return reply.code(404).send({ error: "Serata non trovata" });
       }
-      if (event.status !== "OPEN" && event.status !== "LIVE") {
+      if (event.status === "ENDED") {
         return reply.code(403).send({
-          error: `Prenotazioni chiuse: la serata è in stato «${event.status}».`,
+          error: "Serata conclusa: non si possono aggiungere prenotazioni.",
         });
       }
 

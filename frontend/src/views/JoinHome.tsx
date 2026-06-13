@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { BookCatalog } from "../components/BookCatalog";
 import { LiveTab } from "../components/join/LiveTab";
+import { TurnAlertBar } from "../components/join/TurnAlertBar";
 import { LeaderboardTab } from "../components/join/LeaderboardTab";
 import { ProfileTab } from "../components/join/ProfileTab";
 import { getStoredEvent, getStoredNickname, getStoredToken } from "../api/client";
@@ -83,6 +84,8 @@ export function JoinHome() {
                 </button>
               ))}
             </nav>
+
+            <TurnAlertBar eventId={event.id} />
 
             <section className="kg-card overflow-hidden p-0">
               {tab === "live" && <LiveTab eventId={event.id} userNickname={nickname} />}

@@ -6,6 +6,7 @@ import { AccountSection } from "../components/admin/AccountSection";
 import { MidiCatalogSection } from "../components/admin/MidiCatalogSection";
 import { MidiDebugSection } from "../components/admin/MidiDebugSection";
 import { SoundfontAdminSection } from "../components/admin/SoundfontAdminSection";
+import { YoutubeCookiesSection } from "../components/admin/YoutubeCookiesSection";
 
 const base = import.meta.env.VITE_API_URL ?? "";
 const ADMIN_TOKEN_KEY = "karaoke_admin_jwt";
@@ -246,7 +247,7 @@ export function Admin() {
         <main className="mt-6">
           {tab === "console" && <LiveConsole authHeader={authHeader} />}
 
-          {tab === "book" && <AdminBookSection authHeader={authHeader} />}
+          {tab === "book" && <AdminBookSection authHeader={authHeader} adminUsername={me?.username} />}
 
           {tab === "catalog" && <MidiCatalogSection authHeader={authHeader} />}
 
@@ -260,6 +261,8 @@ export function Admin() {
               </p>
 
               <SoundfontAdminSection authHeader={authHeader} isSuper={isSuper} />
+
+              <YoutubeCookiesSection authHeader={authHeader} />
 
               {isSuper && <MidiDebugSection authHeader={authHeader} />}
             </div>

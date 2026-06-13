@@ -180,7 +180,8 @@ export function LiveTab({ eventId, userNickname }: { eventId: string; userNickna
 
       {isMine ? (
         <p className="mt-5 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-100">
-          Sei tu sul palco: il pubblico sta votando per te. In bocca al lupo! 🎤
+          <span className="font-semibold">È il tuo turno!</span> Sei sul palco — il pubblico sta votando per te. In
+          bocca al lupo! 🎤
         </p>
       ) : (
         <div className="mt-5">

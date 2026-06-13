@@ -32,7 +32,8 @@ L'app è su `http://<host>:8083`.
 | URL | Chi la usa |
 |-----|------------|
 | `/join` | Pubblico (smartphone): prenotazioni, voti, commenti, classifica |
-| `/display` | Proiettore / TV (login admin): palco, testi, video, QR, punteggi |
+| `/display?eventId=…` | Proiettore / TV (login admin): palco, testi, video, QR, punteggi |
+| `/display` | Cantanti (dopo join): testi/video sincronizzati al proiettore, senza audio («Gobbo») |
 | `/admin` | Host / DJ: coda live, conduzione serata, catalogo, impostazioni tecniche |
 
 ## Funzionalità principali
@@ -40,12 +41,15 @@ L'app è su `http://<host>:8083`.
 ### Pubblico (`/join`)
 
 - Entrata con nickname e PIN serata
+- **Stati serata**: in *preparazione* il pubblico può entrare e **cercare** brani (MIDI/YouTube), ma non prenotare; con *prenotazioni aperte* anche le prenotazioni; *conclusa* chiude tutto
 - Prenotazione brani **MIDI** (catalogo dell'admin) o **YouTube** (ricerca integrata)
 - Anteprima MIDI (~25 s) e anteprima YouTube inline
+- Avvisi turno: «Dopo questa tocca a te» / «È il tuo turno» (banner + scaletta)
+- Link **Gobbo** (`/display`) per seguire testi/video sul telefono senza audio
 - Voto 1–10 e commenti durante l'esibizione in corso
 - Classifica serata e storica
 
-### Schermo sala (`/display`)
+### Schermo sala (`/display?eventId=…`)
 
 - Login admin (stesso account del pannello); chiusura automatica a fine brano
 - **Palco unificato**: stessa cornice per MIDI, video scaricati e embed YouTube
@@ -55,9 +59,15 @@ L'app è su `http://<host>:8083`.
   compare al movimento del mouse/touch
 - QR code e PIN nella schermata d'attesa; coriandoli sul punteggio; commenti live in overlay
 
+### Display cantante (`/display` senza `eventId`)
+
+- Dopo join pubblico (PIN + nickname): segue il proiettore **senza audio**
+- Testi MIDI sincronizzati in tempo reale; video YouTube con pulsante **Connetti** (sync one-shot + play/pausa dal proiettore)
+
 ### Console host (`/admin`)
 
-- **Conduzione**: scaletta live, approvazione richieste, «Ora sul palco», voti, concludi esibizione
+- **Conduzione**: scaletta live (drag-and-drop), approvazione richieste, «Ora sul palco», voti, concludi esibizione
+- **Prenota** (host): aggiunge brani in coda per un partecipante, nickname libero o **Tutti Insieme** (canto di gruppo)
 - **Coda**: anticipa/posticipa, elimina, avvia sul palco, bis (↻ ripeti)
 - **Video YouTube**: download «no ads» con yt-dlp; rinomina titolo; fallback embed se download fallisce
 - **Tonalità e voce (MIDI)**:
@@ -65,8 +75,8 @@ L'app è su `http://<host>:8083`.
   - Selettore **tonalità in semitoni** (−12…+12) — effetto live sul display
 - **Tonalità (video scaricati)**: stesso selettore semitoni; audio processato con SoundTouchJS
 - **Catalogo MIDI**: upload singolo, import massivo da ZIP, metadati da file (.mid), genere, modifica brani
-- **Audio**: banchi soundfont Gleitz o SF2 caricati; sync campioni; cookies YouTube per admin
-- Stati serata: In preparazione → Prenotazioni aperte → Live → Conclusa (con pulizia video yt)
+- **Tecnico**: banco soundfont (Gleitz/SF2), **cookies YouTube** per yt-dlp (carica/rimuovi), debug MIDI (super admin)
+- Stati serata: **In preparazione** (default alla creazione) → **Prenotazioni aperte** → **Conclusa** (pulizia video yt)
 
 ### Backend
 
@@ -117,12 +127,21 @@ SMTP_HOST=smtp.gmail.com
 SMTP_PORT=587
 SMTP_USER=tua@email.com
 SMTP_PASS=password_app
+# Opzionale: cookies Netscape globali per yt-dlp (priorità sotto i file per-admin)
 YOUTUBE_COOKIES_PATH=
 ```
 
+### Cookies YouTube (yt-dlp)
+
+Se YouTube blocca ricerca o download dal server, carica un `cookies.txt` Netscape da **`/admin` → Tecnico → Cookies YouTube**. Ogni admin ha un file personale usato per le proprie serate; puoi anche **rimuoverlo** dal pannello. yt-dlp riceve `--cookies` con questa priorità:
+
+1. File personale dell'admin della serata (`storage/cookies/admin-{id}.txt`)
+2. `YOUTUBE_COOKIES_PATH` (env o volume Docker)
+3. File condiviso legacy `storage/cookies/youtube.txt`
+
 ## Aggiungere canzoni MIDI
 
-1. Vai su `/admin` → **Tecnico** → Catalogo (o import ZIP massivo)
+1. Vai su `/admin` → **Catalogo** (o import ZIP massivo dal tab Catalogo)
 2. Carica file `.mid` + `.lrc` opzionale
 3. Titolo/artista/anno possono essere letti dal file; il brano appare nel catalogo prenotazioni
 

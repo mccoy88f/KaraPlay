@@ -28,9 +28,8 @@ type QueueBooking = {
 };
 
 const STATUS_STEPS: { id: string; label: string; hint: string }[] = [
-  { id: "DRAFT", label: "In preparazione", hint: "Il pubblico non può ancora entrare" },
-  { id: "OPEN", label: "Prenotazioni aperte", hint: "Il pubblico entra e prenota" },
-  { id: "LIVE", label: "Serata live", hint: "Si canta! Prenotazioni ancora aperte" },
+  { id: "DRAFT", label: "In preparazione", hint: "Il pubblico entra e cerca brani, senza prenotare" },
+  { id: "OPEN", label: "Prenotazioni aperte", hint: "Il pubblico entra, prenota e si canta" },
   { id: "ENDED", label: "Conclusa", hint: "Serata chiusa" },
 ];
 
@@ -351,17 +350,14 @@ export function LiveConsole({ authHeader }: Props) {
         return;
       }
       const created = data as AdminEvent;
-      // la serata nasce già pronta ad accogliere il pubblico
-      await adminFetch(`/admin/events/${created.id}/status`, {
-        method: "PUT",
-        body: JSON.stringify({ status: "OPEN" }),
-      });
       await loadEvents();
       setEventId(created.id);
       setShowCreate(false);
       setNewName("");
       setNewLocation("");
-      setMsg(`Serata pronta! Comunica il PIN ${created.joinCode} o proietta il QR dallo schermo sala.`);
+      setMsg(
+        `Serata creata in preparazione. PIN ${created.joinCode}: il pubblico può entrare e cercare brani; passa a «Prenotazioni aperte» quando vuoi accettare prenotazioni.`
+      );
     } finally {
       setCreating(false);
     }
@@ -571,7 +567,7 @@ export function LiveConsole({ authHeader }: Props) {
               disabled={creating || !newName.trim()}
               className="rounded-lg bg-fuchsia-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-fuchsia-500 disabled:opacity-40"
             >
-              {creating ? "Creazione…" : "Crea e apri"}
+              {creating ? "Creazione…" : "Crea serata"}
             </button>
           </form>
         )}

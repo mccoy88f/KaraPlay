@@ -29,7 +29,7 @@ const updateEventSchema = z.object({
 });
 
 const statusSchema = z.object({
-  status: z.enum(["DRAFT", "OPEN", "LIVE", "ENDED"]),
+  status: z.enum(["DRAFT", "OPEN", "ENDED"]),
 });
 
 export async function registerEventRoutes(fastify: FastifyInstance): Promise<void> {

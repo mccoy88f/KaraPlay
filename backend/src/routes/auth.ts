@@ -70,7 +70,7 @@ export async function registerAuthRoutes(fastify: FastifyInstance): Promise<void
     if (!event) {
       return reply.code(404).send({ error: "Serata non trovata" });
     }
-    if (event.status === "ENDED" || event.status === "DRAFT") {
+    if (event.status === "ENDED") {
       return reply.code(403).send({ error: "Serata non accessibile" });
     }
 

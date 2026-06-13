@@ -2,11 +2,13 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import {
   apiBookMidi,
   apiBookYoutube,
+  apiGetEventById,
   apiGetQueue,
   apiSearchSongs,
   apiSearchYoutube,
   getStoredEvent,
   getStoredUserId,
+  setStoredEvent,
   type SongDto,
   type YoutubeSearchResult,
 } from "../api/client";
@@ -111,21 +113,24 @@ function SongDetailPanel({ song }: { song: SongDto }) {
 
 function BookPlusButton({
   busy,
+  disabled,
   onClick,
   variant = "midi",
 }: {
   busy: boolean;
+  disabled?: boolean;
   onClick: () => void;
   variant?: "midi" | "youtube";
 }) {
+  const blocked = busy || disabled;
   return (
     <button
       type="button"
-      disabled={busy}
+      disabled={blocked}
       aria-label="Prenota"
-      title="Prenota"
+      title={disabled ? "Prenotazioni non ancora aperte" : "Prenota"}
       onClick={onClick}
-      className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-xl font-semibold leading-none text-white disabled:opacity-50 ${
+      className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-xl font-semibold leading-none text-white disabled:cursor-not-allowed disabled:opacity-40 ${
         variant === "youtube"
           ? "bg-red-600 hover:bg-red-500"
           : "bg-fuchsia-600 hover:bg-fuchsia-500"
@@ -153,6 +158,8 @@ export type BookCatalogCoreProps = {
   eventId: string;
   eventName: string;
   viewerUserId?: string | null;
+  /** Guest: false in DRAFT. Admin: sempre true (default). */
+  bookingsOpen?: boolean;
   assignBar?: ReactNode;
   bookMidi: (songId: string, songTitle: string) => Promise<void>;
   bookYoutube: (url: string, title: string) => Promise<void>;
@@ -165,6 +172,7 @@ export function BookCatalogCore({
   eventId,
   eventName,
   viewerUserId,
+  bookingsOpen = true,
   assignBar,
   bookMidi,
   bookYoutube,
@@ -329,6 +337,10 @@ export function BookCatalogCore({
   }, []);
 
   async function book(song: SongDto) {
+    if (!bookingsOpen) {
+      setErr("La serata è in preparazione: puoi cercare brani, le prenotazioni apriranno a breve.");
+      return;
+    }
     setErr(null);
     setMsg(null);
     setBookingId(song.id);
@@ -345,6 +357,10 @@ export function BookCatalogCore({
   }
 
   async function bookYt(r: YoutubeSearchResult) {
+    if (!bookingsOpen) {
+      setErr("La serata è in preparazione: puoi cercare brani, le prenotazioni apriranno a breve.");
+      return;
+    }
     setErr(null);
     setMsg(null);
     setBookingId(r.id);
@@ -372,6 +388,13 @@ export function BookCatalogCore({
       </p>
 
       {assignBar && <div className="mt-4">{assignBar}</div>}
+
+      {!bookingsOpen && (
+        <p className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+          Serata in <strong>preparazione</strong>: esplora il catalogo e cerca su YouTube. Le prenotazioni si
+          abilitano quando l&apos;host passa a «Prenotazioni aperte».
+        </p>
+      )}
 
       <form className="mt-4 flex gap-2" onSubmit={(e) => void search(e)}>
         <input
@@ -430,7 +453,7 @@ export function BookCatalogCore({
                   </button>
                 </div>
                 <MidiPreviewButton songId={s.id} />
-                <BookPlusButton busy={bookingId === s.id} onClick={() => void book(s)} />
+                <BookPlusButton busy={bookingId === s.id} disabled={!bookingsOpen} onClick={() => void book(s)} />
               </div>
               {expanded && <SongDetailPanel song={s} />}
             </li>
@@ -468,6 +491,7 @@ export function BookCatalogCore({
                 </div>
                 <BookPlusButton
                   busy={bookingId === r.id}
+                  disabled={!bookingsOpen}
                   variant="youtube"
                   onClick={() => void bookYt(r)}
                 />
@@ -529,6 +553,30 @@ export function BookCatalog() {
   const storedEvent = getStoredEvent();
   const eventId = storedEvent?.id ?? null;
   const viewerUserId = getStoredUserId();
+  const [eventStatus, setEventStatus] = useState(storedEvent?.status ?? "DRAFT");
+
+  useEffect(() => {
+    if (!eventId || !storedEvent) return;
+    let cancelled = false;
+    void apiGetEventById(eventId)
+      .then((info) => {
+        if (cancelled) return;
+        setEventStatus(info.status);
+        setStoredEvent({
+          id: info.id,
+          name: info.name,
+          joinCode: info.joinCode,
+          status: info.status,
+          soundfontBankId: info.soundfontBankId,
+        });
+      })
+      .catch(() => {
+        /* usa lo stato in memoria */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [eventId, storedEvent?.id]);
 
   if (!storedEvent || !eventId) {
     return (
@@ -543,6 +591,7 @@ export function BookCatalog() {
       eventId={eventId}
       eventName={storedEvent.name}
       viewerUserId={viewerUserId}
+      bookingsOpen={eventStatus === "OPEN"}
       bookMidi={async (songId) => {
         await apiBookMidi(eventId, songId);
       }}

@@ -1,10 +1,5 @@
-import {
-  bookingLabel,
-  queuePosition,
-  sortedActiveQueue,
-  statusLabel,
-  type QueueBookingDto,
-} from "../lib/queueDisplay";
+import { bookingLabel, queuePosition, sortedActiveQueue, statusLabel, type QueueBookingDto } from "../lib/queueDisplay";
+import { turnHintForUser } from "../lib/turnHint";
 
 type Props = {
   queue: QueueBookingDto[];
@@ -15,6 +10,7 @@ type Props = {
 export function QueueOverview({ queue, viewerUserId, loading }: Props) {
   const pendingMine = queue.filter((b) => b.status === "PENDING" && b.user.id === viewerUserId);
   const active = sortedActiveQueue(queue);
+  const turnHint = turnHintForUser(queue, viewerUserId);
   const mineActive = active.filter((b) => b.user.id === viewerUserId);
   const othersActive = active.filter((b) => b.user.id !== viewerUserId);
 
@@ -50,6 +46,9 @@ export function QueueOverview({ queue, viewerUserId, loading }: Props) {
           <ul className="mt-2 space-y-2">
             {mineActive.map((b) => {
               const pos = queuePosition(active, b.id);
+              const isYourTurn = turnHint?.kind === "now" && turnHint.booking.id === b.id;
+              const isUpNext =
+                turnHint?.kind === "afterPrevious" && turnHint.booking.id === b.id;
               return (
                 <li
                   key={b.id}
@@ -61,6 +60,16 @@ export function QueueOverview({ queue, viewerUserId, loading }: Props) {
                     )}
                     {bookingLabel(b)}
                   </p>
+                  {isYourTurn && (
+                    <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-amber-200">
+                      È il tuo turno!
+                    </p>
+                  )}
+                  {isUpNext && turnHint.kind === "afterPrevious" && (
+                    <p className="mt-1 text-xs text-fuchsia-100/90">
+                      Dopo «{bookingLabel(turnHint.previous)}» tocca a te
+                    </p>
+                  )}
                   <p className="text-xs text-fuchsia-200/70">{statusLabel(b.status)}</p>
                 </li>
               );
@@ -77,10 +86,16 @@ export function QueueOverview({ queue, viewerUserId, loading }: Props) {
           <ul className="mt-2 max-h-40 space-y-1.5 overflow-y-auto">
             {othersActive.map((b) => {
               const pos = queuePosition(active, b.id);
+              const marksUpNext =
+                turnHint?.kind === "afterPrevious" && turnHint.previous.id === b.id;
               return (
                 <li
                   key={b.id}
-                  className="flex items-baseline gap-2 rounded-lg border border-zinc-800 bg-zinc-950/60 px-3 py-2 text-sm"
+                  className={`flex items-baseline gap-2 rounded-lg border px-3 py-2 text-sm ${
+                    marksUpNext
+                      ? "border-amber-500/40 bg-amber-500/10"
+                      : "border-zinc-800 bg-zinc-950/60"
+                  }`}
                 >
                   <span className="shrink-0 font-display tabular-nums text-zinc-500">#{pos}</span>
                   <div className="min-w-0 flex-1">
@@ -89,6 +104,9 @@ export function QueueOverview({ queue, viewerUserId, loading }: Props) {
                       {b.user.nickname}
                       {b.status === "PERFORMING" && " · sul palco"}
                     </p>
+                    {marksUpNext && (
+                      <p className="mt-1 text-xs font-medium text-amber-200">Dopo questa tocca a te</p>
+                    )}
                   </div>
                 </li>
               );

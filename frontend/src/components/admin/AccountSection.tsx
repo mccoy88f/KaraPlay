@@ -12,13 +12,6 @@ type AdminUserRow = {
   _count: { events: number };
 };
 
-type CookiesStatus = {
-  configured: boolean;
-  size?: number;
-  mtime?: string;
-  fallback?: string | null;
-};
-
 type Props = {
   me: AdminMe;
   authHeader: () => Record<string, string>;
@@ -28,29 +21,14 @@ export function AccountSection({ me, authHeader }: Props) {
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
-  // cambio password
   const [currentPw, setCurrentPw] = useState("");
   const [newPw, setNewPw] = useState("");
   const [pwBusy, setPwBusy] = useState(false);
 
-  // cookies personali
-  const [cookies, setCookies] = useState<CookiesStatus | null>(null);
-
-  // gestione utenti (solo super admin)
   const [users, setUsers] = useState<AdminUserRow[]>([]);
   const [newUsername, setNewUsername] = useState("");
   const [newUserPw, setNewUserPw] = useState("");
   const [userBusy, setUserBusy] = useState(false);
-
-  const loadCookies = useCallback(async () => {
-    try {
-      const res = await fetch(`${base}/api/admin/youtube/cookies-status`, { headers: { ...authHeader() } });
-      const data = await res.json().catch(() => ({}));
-      if (res.ok) setCookies(data as CookiesStatus);
-    } catch {
-      setCookies(null);
-    }
-  }, [authHeader]);
 
   const loadUsers = useCallback(async () => {
     if (me.role !== "SUPERADMIN") return;
@@ -64,9 +42,8 @@ export function AccountSection({ me, authHeader }: Props) {
   }, [authHeader, me.role]);
 
   useEffect(() => {
-    void loadCookies();
     void loadUsers();
-  }, [loadCookies, loadUsers]);
+  }, [loadUsers]);
 
   async function changePassword(e: React.FormEvent) {
     e.preventDefault();
@@ -90,41 +67,6 @@ export function AccountSection({ me, authHeader }: Props) {
     } finally {
       setPwBusy(false);
     }
-  }
-
-  async function uploadCookies(file: File | null) {
-    if (!file) return;
-    setErr(null);
-    setMsg(null);
-    const body = new FormData();
-    body.append("file", file);
-    const res = await fetch(`${base}/api/admin/youtube/cookies`, {
-      method: "POST",
-      headers: { ...authHeader() },
-      body,
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      setErr((data as { error?: string }).error ?? "Upload fallito");
-      return;
-    }
-    setMsg("Cookies personali salvati: valgono per ricerca e download delle tue serate.");
-    await loadCookies();
-  }
-
-  async function deleteCookies() {
-    setErr(null);
-    const res = await fetch(`${base}/api/admin/youtube/cookies`, {
-      method: "DELETE",
-      headers: { ...authHeader() },
-    });
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      setErr((data as { error?: string }).error ?? "Eliminazione fallita");
-      return;
-    }
-    setMsg("Cookies personali rimossi.");
-    await loadCookies();
   }
 
   async function createUser(e: React.FormEvent) {
@@ -220,58 +162,13 @@ export function AccountSection({ me, authHeader }: Props) {
         </form>
       </section>
 
-      <section className="kg-card p-5 md:p-6">
-        <h2 className="font-display text-lg font-semibold text-white">I tuoi cookies YouTube</h2>
-        <p className="mt-2 text-sm text-zinc-400">
-          Personali: valgono per la ricerca e il download <strong className="text-zinc-300">delle tue serate</strong>.
-          Servono solo se YouTube blocca le richieste dal server. Esporta i cookie in formato{" "}
-          <strong className="text-zinc-300">Netscape</strong> da un account secondario (estensione tipo
-          &quot;Get cookies.txt LOCALLY&quot; mentre sei loggato su youtube.com).
-        </p>
-
-        <p className="mt-3 text-sm">
-          {cookies?.configured ? (
-            <span className="text-emerald-400">
-              ✓ Cookies caricati
-              {cookies.mtime && <span className="text-zinc-500"> · {new Date(cookies.mtime).toLocaleString()}</span>}
-            </span>
-          ) : (
-            <span className="text-zinc-500">
-              Nessun cookie personale.
-              {cookies?.fallback && <span> Si usa il ripiego {cookies.fallback}.</span>}
-            </span>
-          )}
-        </p>
-
-        <div className="mt-4 flex flex-wrap items-center gap-3">
-          <label className="cursor-pointer rounded-xl border border-cyan-500/40 bg-cyan-500/10 px-5 py-2.5 text-sm font-medium text-cyan-100 hover:bg-cyan-500/20">
-            Carica cookies.txt
-            <input
-              type="file"
-              accept=".txt,text/plain"
-              className="hidden"
-              onChange={(e) => void uploadCookies(e.target.files?.[0] ?? null)}
-            />
-          </label>
-          {cookies?.configured && (
-            <button
-              type="button"
-              onClick={() => void deleteCookies()}
-              className="rounded-xl border border-zinc-600 px-4 py-2.5 text-sm text-zinc-300 hover:bg-zinc-800"
-            >
-              Rimuovi
-            </button>
-          )}
-        </div>
-      </section>
-
       {me.role === "SUPERADMIN" && (
         <section className="kg-card p-5 md:p-6">
           <h2 className="font-display text-lg font-semibold text-white">Admin delle serate</h2>
           <p className="mt-2 text-sm text-zinc-400">
             Ogni admin entra da <code className="rounded bg-zinc-800 px-1 text-cyan-300">/admin</code> con le sue
-            credenziali, gestisce solo le <strong className="text-zinc-300">sue</strong> serate e i suoi cookies.
-            Non può toccare catalogo MIDI, soundfont o impostazioni del server.
+            credenziali e gestisce solo le <strong className="text-zinc-300">sue</strong> serate. Le impostazioni
+            tecniche (suono, cookies YouTube) sono nel tab <strong className="text-zinc-300">Tecnico</strong>.
           </p>
 
           <form onSubmit={createUser} className="mt-4 flex flex-wrap items-end gap-3">

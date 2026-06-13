@@ -37,7 +37,7 @@ export async function registerYoutubeRoutes(fastify: FastifyInstance): Promise<v
       if (!event) {
         return reply.code(404).send({ error: "Serata non trovata" });
       }
-      if (event.status === "DRAFT" || event.status === "ENDED") {
+      if (event.status === "ENDED") {
         return reply.code(403).send({ error: "Serata non accessibile" });
       }
       try {
