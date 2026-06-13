@@ -16,6 +16,8 @@ type Props = {
   showButton?: boolean;
   buttonLabel: string;
   buttonDisabled?: boolean;
+  /** 0–100: barra sotto il pulsante durante il caricamento del banco sonoro. */
+  loadProgressPct?: number | null;
   onStart: () => void;
   hint?: string;
 };
@@ -30,6 +32,7 @@ export function StageStartOverlay({
   showButton = true,
   buttonLabel,
   buttonDisabled,
+  loadProgressPct,
   onStart,
   hint = DEFAULT_HINT,
 }: Props) {
@@ -40,14 +43,27 @@ export function StageStartOverlay({
       {badges}
       {error ? <p className="text-sm text-red-400">{error}</p> : null}
       {showButton ? (
-        <button
-          type="button"
-          disabled={buttonDisabled}
-          onClick={onStart}
-          className="rounded-xl bg-red-600 px-8 py-4 text-lg font-semibold text-white shadow-lg shadow-red-900/40 hover:bg-red-500 disabled:opacity-50"
-        >
-          {buttonLabel}
-        </button>
+        <div className="flex w-full max-w-sm flex-col items-center gap-3">
+          <button
+            type="button"
+            disabled={buttonDisabled}
+            onClick={onStart}
+            className="rounded-xl bg-red-600 px-8 py-4 text-lg font-semibold text-white shadow-lg shadow-red-900/40 hover:bg-red-500 disabled:opacity-50"
+          >
+            {buttonLabel}
+          </button>
+          {loadProgressPct != null && buttonDisabled && (
+            <div className="w-full">
+              <div className="h-2.5 overflow-hidden rounded-full bg-zinc-800">
+                <div
+                  className="h-full rounded-full bg-fuchsia-500 transition-[width] duration-150"
+                  style={{ width: `${loadProgressPct}%` }}
+                />
+              </div>
+              <p className="mt-1.5 text-xs tabular-nums text-zinc-500">{loadProgressPct}%</p>
+            </div>
+          )}
+        </div>
       ) : waitingText ? (
         <p className="text-sm text-zinc-500">{waitingText}</p>
       ) : null}

@@ -1,9 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { SoundfontSelect } from "../SoundfontSelect";
 import { getEventSocket } from "../../lib/socket";
-import type { SoundfontBankId } from "../../lib/soundfontBanks";
-import { getSoundfontBank, isSf2BankId, SF2_MAX_UPLOAD_BYTES, SF2_MAX_UPLOAD_LABEL } from "../../lib/soundfontBanks";
-import { uploadFormWithProgress } from "../../lib/uploadWithProgress";
 import { youtubeVideoId } from "../YoutubeEmbed";
 
 const base = import.meta.env.VITE_API_URL ?? "";
@@ -27,11 +23,9 @@ type QueueBooking = {
   ytTitle: string | null;
   ytProcessError: string | null;
   user: { nickname: string };
-  song: { id: string; title: string; artist: string; source?: string; mutedTrack?: number | null; transposeSemitones?: number } | null;
+  song: { id: string; title: string; artist: string; source?: string; coverUrl?: string | null; mutedTrack?: number | null; transposeSemitones?: number } | null;
   performance: { id: string; scoreTotal?: number | null } | null;
 };
-
-type Sf2File = { file: string; size: number };
 
 const STATUS_STEPS: { id: string; label: string; hint: string }[] = [
   { id: "DRAFT", label: "In preparazione", hint: "Il pubblico non può ancora entrare" },
@@ -43,6 +37,40 @@ const STATUS_STEPS: { id: string; label: string; hint: string }[] = [
 function bookingTitle(b: QueueBooking): string {
   if (b.song) return `${b.song.title} — ${b.song.artist}`;
   return b.ytTitle ?? b.ytUrl ?? "Brano";
+}
+
+function bookingCoverUrl(b: QueueBooking): string | null {
+  if (b.song?.coverUrl) return b.song.coverUrl;
+  if (b.ytUrl) {
+    const vid = youtubeVideoId(b.ytUrl);
+    if (vid) return `https://i.ytimg.com/vi/${vid}/mqdefault.jpg`;
+  }
+  return null;
+}
+
+function QueueBookingThumb({ b }: { b: QueueBooking }) {
+  const url = bookingCoverUrl(b);
+  if (url) {
+    return (
+      <img
+        src={url}
+        alt=""
+        className="h-14 w-24 shrink-0 rounded-lg object-cover"
+        loading="lazy"
+        onError={(e) => {
+          (e.target as HTMLImageElement).style.visibility = "hidden";
+        }}
+      />
+    );
+  }
+  return (
+    <div
+      className="flex h-14 w-24 shrink-0 items-center justify-center rounded-lg bg-amber-500/15 text-xl text-amber-200/80"
+      aria-hidden
+    >
+      🎵
+    </div>
+  );
 }
 
 type MidiSongSettings = {
@@ -190,17 +218,11 @@ function MidiLiveControls({
   );
 }
 
-function formatMB(bytes: number): string {
-  return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
-}
-
 type Props = {
   authHeader: () => Record<string, string>;
-  /** Solo il super admin può modificare i file del server (sync banchi, upload/delete sf2). */
-  isSuper: boolean;
 };
 
-export function LiveConsole({ authHeader, isSuper }: Props) {
+export function LiveConsole({ authHeader }: Props) {
   const [events, setEvents] = useState<AdminEvent[]>([]);
   const [eventId, setEventId] = useState<string | null>(() => localStorage.getItem(ADMIN_EVENT_KEY));
   const [queue, setQueue] = useState<QueueBooking[]>([]);
@@ -210,21 +232,14 @@ export function LiveConsole({ authHeader, isSuper }: Props) {
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
 
   // creazione serata
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState("");
   const [newLocation, setNewLocation] = useState("");
   const [creating, setCreating] = useState(false);
-
-  // impostazioni audio (sezione richiudibile)
-  const [showAudio, setShowAudio] = useState(false);
-  const [sf2Files, setSf2Files] = useState<Sf2File[]>([]);
-  const [sfStatus, setSfStatus] = useState<{ present: number; total: number; ready: boolean } | null>(null);
-  const [sfSyncing, setSfSyncing] = useState(false);
-  const [sf2Uploading, setSf2Uploading] = useState(false);
-  const [sf2UploadPct, setSf2UploadPct] = useState<number | null>(null);
-  const sf2InputRef = useRef<HTMLInputElement | null>(null);
 
   const event = events.find((e) => e.id === eventId) ?? null;
   const performingRef = useRef<string | null>(null);
@@ -391,11 +406,45 @@ export function LiveConsole({ authHeader, isSuper }: Props) {
     if (ok) setMsg("Esibizione conclusa: punteggio e classifica aggiornati.");
   }
 
-  async function move(b: QueueBooking, direction: "up" | "down") {
-    await adminFetch(`/admin/bookings/${b.id}/move`, {
-      method: "POST",
-      body: JSON.stringify({ direction }),
+  async function reorderQueue(bookingIds: string[]) {
+    if (!eventId) return;
+    await adminFetch(`/admin/events/${eventId}/queue/reorder`, {
+      method: "PUT",
+      body: JSON.stringify({ bookingIds }),
     });
+  }
+
+  function handleQueueDragStart(e: React.DragEvent, id: string) {
+    setDragId(id);
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", id);
+  }
+
+  function handleQueueDragOver(e: React.DragEvent, id: string) {
+    e.preventDefault();
+    if (dragId && dragId !== id) setDragOverId(id);
+  }
+
+  function handleQueueDrop(e: React.DragEvent, targetId: string) {
+    e.preventDefault();
+    const fromId = dragId ?? e.dataTransfer.getData("text/plain");
+    setDragId(null);
+    setDragOverId(null);
+    if (!fromId || fromId === targetId) return;
+
+    const fromIdx = upcoming.findIndex((b) => b.id === fromId);
+    const toIdx = upcoming.findIndex((b) => b.id === targetId);
+    if (fromIdx < 0 || toIdx < 0) return;
+
+    const next = [...upcoming];
+    const [item] = next.splice(fromIdx, 1);
+    next.splice(toIdx, 0, item);
+    void reorderQueue(next.map((b) => b.id));
+  }
+
+  function handleQueueDragEnd() {
+    setDragId(null);
+    setDragOverId(null);
   }
 
   async function remove(b: QueueBooking) {
@@ -462,120 +511,6 @@ export function LiveConsole({ authHeader, isSuper }: Props) {
     } finally {
       setBusy(null);
     }
-  }
-
-  // ---- impostazioni audio (solo quando aperte) ----
-  const soundfontBankId: SoundfontBankId = getSoundfontBank(event?.soundfontBankId).id;
-
-  const loadSf2Files = useCallback(async () => {
-    try {
-      const res = await fetch(`${base}/api/admin/soundfonts/sf2`, { headers: { ...authHeader() } });
-      const data = await res.json().catch(() => ({}));
-      if (res.ok) setSf2Files(((data as { files?: Sf2File[] }).files ?? []));
-    } catch {
-      /* select mostra solo i banchi base */
-    }
-  }, [authHeader]);
-
-  const fetchSfStatus = useCallback(async () => {
-    if (!event || isSf2BankId(soundfontBankId)) {
-      setSfStatus(null);
-      return;
-    }
-    try {
-      const res = await fetch(`${base}/api/admin/soundfonts/${encodeURIComponent(soundfontBankId)}/status`, {
-        headers: { ...authHeader() },
-      });
-      const data = await res.json().catch(() => ({}));
-      if (res.ok && typeof (data as { present?: number }).present === "number") {
-        const d = data as { present: number; total: number; ready: boolean };
-        setSfStatus({ present: d.present, total: d.total, ready: d.ready });
-      }
-    } catch {
-      setSfStatus(null);
-    }
-  }, [event, soundfontBankId, authHeader]);
-
-  useEffect(() => {
-    if (!showAudio) return;
-    void loadSf2Files();
-    void fetchSfStatus();
-  }, [showAudio, loadSf2Files, fetchSfStatus]);
-
-  async function persistSoundfont(id: SoundfontBankId) {
-    if (!event) return;
-    const ok = await adminFetch(`/admin/events/${event.id}`, {
-      method: "PUT",
-      body: JSON.stringify({ soundfontBankId: id }),
-    });
-    if (ok) {
-      setMsg("Timbro aggiornato: lo schermo sala userà questo suono.");
-      await loadEvents();
-    }
-  }
-
-  async function syncSoundfont() {
-    setSfSyncing(true);
-    try {
-      const res = await fetch(`${base}/api/admin/soundfonts/${encodeURIComponent(soundfontBankId)}/sync`, {
-        method: "POST",
-        headers: { ...authHeader() },
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setErr((data as { error?: string }).error ?? "Download suoni fallito");
-        return;
-      }
-      const d = data as { status?: { present: number; total: number; ready: boolean } };
-      if (d.status) setSfStatus(d.status);
-      setMsg("Suoni pronti sul server.");
-    } finally {
-      setSfSyncing(false);
-    }
-  }
-
-  async function uploadSf2(file: File) {
-    setErr(null);
-    setMsg(null);
-    if (file.size > SF2_MAX_UPLOAD_BYTES) {
-      setErr(`File troppo grande: ${formatMB(file.size)} (max ${SF2_MAX_UPLOAD_LABEL}).`);
-      if (sf2InputRef.current) sf2InputRef.current.value = "";
-      return;
-    }
-    setSf2Uploading(true);
-    setSf2UploadPct(0);
-    try {
-      const form = new FormData();
-      form.append("file", file);
-      const { status, data } = await uploadFormWithProgress(
-        `${base}/api/admin/soundfonts/sf2/upload`,
-        form,
-        authHeader(),
-        setSf2UploadPct
-      );
-      if (status === 413) {
-        setErr(`File troppo grande (max ${SF2_MAX_UPLOAD_LABEL}).`);
-        return;
-      }
-      if (!status || status >= 400) {
-        setErr(typeof data.error === "string" ? data.error : "Upload fallito");
-        return;
-      }
-      setMsg(`SoundFont «${file.name}» caricato (${formatMB(file.size)}): selezionalo come timbro.`);
-      await loadSf2Files();
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : "Upload fallito");
-    } finally {
-      setSf2Uploading(false);
-      setSf2UploadPct(null);
-      if (sf2InputRef.current) sf2InputRef.current.value = "";
-    }
-  }
-
-  async function deleteSf2(file: string) {
-    if (!window.confirm(`Eliminare «${file}» dal server?`)) return;
-    await adminFetch(`/admin/soundfonts/sf2/${encodeURIComponent(file)}`, { method: "DELETE" });
-    await loadSf2Files();
   }
 
   // ---------- render ----------
@@ -774,7 +709,7 @@ export function LiveConsole({ authHeader, isSuper }: Props) {
                         onClick={() => void approve(b, true)}
                         className="rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-40"
                       >
-                        ✓ In scaletta
+                        + In scaletta
                       </button>
                       <button
                         type="button"
@@ -797,7 +732,7 @@ export function LiveConsole({ authHeader, isSuper }: Props) {
               <p className="text-xs font-medium uppercase tracking-[0.25em] text-cyan-400/90">
                 📋 Scaletta ({upcoming.length})
               </p>
-              <p className="text-xs text-zinc-600">Si aggiorna da sola quando il pubblico prenota</p>
+              <p className="text-xs text-zinc-600">Trascina ⠿ per riordinare · si aggiorna da sola quando il pubblico prenota</p>
             </div>
 
             {upcoming.length === 0 ? (
@@ -806,125 +741,135 @@ export function LiveConsole({ authHeader, isSuper }: Props) {
                 <span className="font-mono text-fuchsia-300">{event.joinCode}</span>.
               </p>
             ) : (
-              <ul className="mt-4 space-y-2">
+              <ul className="mt-4 space-y-3">
                 {upcoming.map((b, i) => (
                   <li
                     key={b.id}
-                    className={`flex items-center gap-3 rounded-xl border p-3 ${
-                      i === 0 && !performing ? "border-fuchsia-500/40 bg-fuchsia-500/5" : "border-zinc-800 bg-zinc-950/60"
-                    }`}
+                    onDragOver={(e) => handleQueueDragOver(e, b.id)}
+                    onDragLeave={() => setDragOverId(null)}
+                    onDrop={(e) => handleQueueDrop(e, b.id)}
+                    className={`rounded-xl border p-4 transition-colors ${
+                      dragOverId === b.id
+                        ? "border-cyan-400/60 bg-cyan-500/10"
+                        : i === 0 && !performing
+                          ? "border-fuchsia-500/40 bg-fuchsia-500/5"
+                          : "border-zinc-800 bg-zinc-950/60"
+                    } ${dragId === b.id ? "opacity-60" : ""}`}
                   >
-                    <span className="w-6 shrink-0 text-center font-mono text-sm text-zinc-600">{i + 1}</span>
-                    <div className="min-w-0 flex-1">
-                      <p className="font-medium text-white">
-                        {b.user.nickname}
-                        {b.ytUrl && (
-                          <span className="ml-2 rounded-full border border-red-500/40 bg-red-500/10 px-2 py-0.5 text-[10px] uppercase text-red-200/90">
-                            video
-                          </span>
-                        )}
-                        {b.status === "READY" && (
-                          <span className="ml-2 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[10px] uppercase text-emerald-200/90">
-                            senza pubblicità
-                          </span>
-                        )}
-                        {b.status === "PROCESSING" && (
-                          <span className="ml-2 text-xs text-amber-300/90">download…</span>
-                        )}
-                      </p>
-                      <p className="truncate text-sm text-zinc-400" title={bookingTitle(b)}>
-                        {bookingTitle(b)}
-                      </p>
-                      {b.ytProcessError && (
-                        <p className="text-xs text-red-400" title={b.ytProcessError}>
-                          Download fallito (partirà col player YouTube): {b.ytProcessError.slice(0, 80)}
-                          <span className="text-zinc-500"> — spesso si risolve caricando i cookies in 🔧 Tecnico → YouTube</span>
-                        </p>
+                    <div className="flex gap-3">
+                      <div className="flex shrink-0 flex-col items-center gap-1">
+                        <button
+                          type="button"
+                          draggable
+                          onDragStart={(e) => handleQueueDragStart(e, b.id)}
+                          onDragEnd={handleQueueDragEnd}
+                          className="cursor-grab touch-none rounded px-1 py-1 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300 active:cursor-grabbing"
+                          title="Trascina per riordinare"
+                          aria-label="Trascina per riordinare"
+                        >
+                          ⠿
+                        </button>
+                        <span className="font-mono text-sm text-zinc-600">{i + 1}</span>
+                      </div>
+
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-start gap-3">
+                          <QueueBookingThumb b={b} />
+                          <div className="min-w-0 flex-1">
+                            <p className="font-medium leading-snug text-white">
+                              {b.user.nickname}
+                              {b.ytUrl && (
+                                <span className="ml-2 rounded-full border border-red-500/40 bg-red-500/10 px-2 py-0.5 text-[10px] uppercase text-red-200/90">
+                                  video
+                                </span>
+                              )}
+                              {b.status === "READY" && (
+                                <span className="ml-2 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[10px] uppercase text-emerald-200/90">
+                                  senza pubblicità
+                                </span>
+                              )}
+                              {b.status === "PROCESSING" && (
+                                <span className="ml-2 text-xs text-amber-300/90">download…</span>
+                              )}
+                            </p>
+                            <p className="mt-1 text-sm leading-relaxed text-zinc-400">{bookingTitle(b)}</p>
+                            {b.ytProcessError && (
+                              <p className="mt-1 text-xs leading-relaxed text-red-400" title={b.ytProcessError}>
+                                Download fallito (partirà col player YouTube): {b.ytProcessError.slice(0, 120)}
+                                <span className="text-zinc-500">
+                                  {" "}
+                                  — spesso si risolve caricando i cookies in 🔧 Tecnico → YouTube
+                                </span>
+                              </p>
+                            )}
+                          </div>
+                          {b.status !== "PROCESSING" && (
+                            <button
+                              type="button"
+                              disabled={busy === b.id || Boolean(performing)}
+                              title={performing ? "C'è già qualcuno sul palco" : "Manda sul palco"}
+                              onClick={() => void start(b)}
+                              className={`shrink-0 ${
+                                i === 0
+                                  ? "rounded-xl bg-fuchsia-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-fuchsia-500 disabled:opacity-40"
+                                  : "rounded-xl border border-fuchsia-500/40 px-4 py-2 text-sm text-fuchsia-200 hover:bg-fuchsia-500/15 disabled:opacity-40"
+                              }`}
+                            >
+                              ▶ Sul palco
+                            </button>
+                          )}
+                        </div>
+
+                        <div className="mt-4 flex flex-wrap items-center gap-2">
+                      {b.song?.source === "MIDI" && (
+                        <MidiLiveControls
+                          song={b.song}
+                          authHeader={authHeader}
+                          muteTitle="Silenzia un canale MIDI (es. Ch.04 voce guida)"
+                          transposeTitle="Trasposizione in semitoni per tutte le esecuzioni del brano"
+                          onMute={(track) => void setMutedTrack(b.song!.id, track)}
+                          onTranspose={(semitones) => void setTransposeSemitones(b.song!.id, semitones)}
+                        />
                       )}
+                      {b.song?.source === "YOUTUBE" && (
+                        <TransposeLiveControl
+                          transpose={b.song.transposeSemitones ?? 0}
+                          title="Trasposizione in semitoni per tutte le esecuzioni del video"
+                          onTranspose={(semitones) => void setTransposeSemitones(b.song!.id, semitones)}
+                        />
+                      )}
+                      {b.ytUrl && (
+                        <button
+                          type="button"
+                          title="Rinomina il titolo del video"
+                          onClick={() => void renameVideo(b)}
+                          className="rounded border border-zinc-700 px-2 py-2 text-xs text-zinc-300 hover:bg-zinc-800"
+                        >
+                          ✏️
+                        </button>
+                      )}
+                      {b.ytUrl && b.status === "APPROVED" && !b.song && (
+                        <button
+                          type="button"
+                          disabled={busy === b.id}
+                          title="Scarica il video sul server: partirà senza pubblicità"
+                          onClick={() => void downloadVideo(b)}
+                          className="rounded-lg border border-emerald-500/50 px-2.5 py-2 text-xs text-emerald-200 hover:bg-emerald-900/40 disabled:opacity-40"
+                        >
+                          no ads ⬇
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => void remove(b)}
+                        className="rounded-lg border border-red-500/40 px-2 py-2 text-xs text-red-300 hover:bg-red-950/40"
+                        title="Togli dalla scaletta"
+                      >
+                        🗑
+                      </button>
+                        </div>
+                      </div>
                     </div>
-                    {b.status !== "PROCESSING" && (
-                      <button
-                        type="button"
-                        disabled={busy === b.id || Boolean(performing)}
-                        title={performing ? "C'è già qualcuno sul palco" : "Manda sul palco"}
-                        onClick={() => void start(b)}
-                        className={
-                          i === 0
-                            ? "rounded-xl bg-fuchsia-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-fuchsia-500 disabled:opacity-40"
-                            : "rounded-xl border border-fuchsia-500/40 px-4 py-2 text-sm text-fuchsia-200 hover:bg-fuchsia-500/15 disabled:opacity-40"
-                        }
-                      >
-                        ▶ Sul palco
-                      </button>
-                    )}
-                    {b.song?.source === "MIDI" && (
-                      <MidiLiveControls
-                        song={b.song}
-                        className="shrink-0"
-                        authHeader={authHeader}
-                        muteTitle="Silenzia un canale MIDI (es. Ch.04 voce guida)"
-                        transposeTitle="Trasposizione in semitoni per tutte le esecuzioni del brano"
-                        onMute={(track) => void setMutedTrack(b.song!.id, track)}
-                        onTranspose={(semitones) => void setTransposeSemitones(b.song!.id, semitones)}
-                      />
-                    )}
-                    {b.song?.source === "YOUTUBE" && (
-                      <TransposeLiveControl
-                        className="shrink-0"
-                        transpose={b.song.transposeSemitones ?? 0}
-                        title="Trasposizione in semitoni per tutte le esecuzioni del video"
-                        onTranspose={(semitones) => void setTransposeSemitones(b.song!.id, semitones)}
-                      />
-                    )}
-                    {b.ytUrl && (
-                      <button
-                        type="button"
-                        title="Rinomina il titolo del video"
-                        onClick={() => void renameVideo(b)}
-                        className="rounded border border-zinc-700 px-2 py-2 text-xs text-zinc-300 hover:bg-zinc-800"
-                      >
-                        ✏️
-                      </button>
-                    )}
-                    {b.ytUrl && b.status === "APPROVED" && !b.song && (
-                      <button
-                        type="button"
-                        disabled={busy === b.id}
-                        title="Scarica il video sul server: partirà senza pubblicità"
-                        onClick={() => void downloadVideo(b)}
-                        className="rounded-lg border border-emerald-500/50 px-2.5 py-2 text-xs text-emerald-200 hover:bg-emerald-900/40 disabled:opacity-40"
-                      >
-                        no ads ⬇
-                      </button>
-                    )}
-                    <div className="flex flex-col gap-0.5">
-                      <button
-                        type="button"
-                        disabled={i === 0}
-                        onClick={() => void move(b, "up")}
-                        className="rounded border border-zinc-700 px-1.5 text-xs text-zinc-400 hover:bg-zinc-800 disabled:opacity-25"
-                        title="Anticipa"
-                      >
-                        ↑
-                      </button>
-                      <button
-                        type="button"
-                        disabled={i >= upcoming.length - 1}
-                        onClick={() => void move(b, "down")}
-                        className="rounded border border-zinc-700 px-1.5 text-xs text-zinc-400 hover:bg-zinc-800 disabled:opacity-25"
-                        title="Posticipa"
-                      >
-                        ↓
-                      </button>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => void remove(b)}
-                      className="rounded-lg border border-red-500/40 px-2 py-2 text-xs text-red-300 hover:bg-red-950/40"
-                      title="Togli dalla scaletta"
-                    >
-                      🗑
-                    </button>
                   </li>
                 ))}
               </ul>
@@ -966,125 +911,6 @@ export function LiveConsole({ authHeader, isSuper }: Props) {
               </ul>
             </section>
           )}
-
-          {/* impostazioni audio richiudibili */}
-          <section className="kg-card p-5 md:p-6">
-            <button
-              type="button"
-              onClick={() => setShowAudio((s) => !s)}
-              className="flex w-full items-center justify-between text-left"
-            >
-              <span className="text-xs font-medium uppercase tracking-[0.25em] text-zinc-500">
-                🎚 Suono delle basi MIDI
-              </span>
-              <span className="text-zinc-600">{showAudio ? "▲" : "▼"}</span>
-            </button>
-
-            {showAudio && (
-              <div className="mt-4 grid gap-5 md:grid-cols-2">
-                <div>
-                  <SoundfontSelect
-                    value={soundfontBankId}
-                    onChange={(id) => void persistSoundfont(id)}
-                    sf2Files={sf2Files.map((f) => f.file)}
-                    id="console-soundfont"
-                    label="Timbro (banco sonoro)"
-                  />
-                  {!isSf2BankId(soundfontBankId) && sfStatus && (
-                    <p className="mt-2 text-xs text-zinc-400">
-                      Suoni sul server:{" "}
-                      <span className="font-mono text-zinc-200">
-                        {sfStatus.present}/{sfStatus.total}
-                      </span>
-                      {sfStatus.ready ? (
-                        <span className="ml-2 text-emerald-400/90">— pronti</span>
-                      ) : (
-                        <span className="ml-2 text-amber-400/90">— scaricali qui sotto (una volta sola)</span>
-                      )}
-                    </p>
-                  )}
-                  {!isSf2BankId(soundfontBankId) &&
-                    (isSuper ? (
-                      <button
-                        type="button"
-                        disabled={sfSyncing}
-                        onClick={() => void syncSoundfont()}
-                        className="mt-3 rounded-lg border border-cyan-500/40 bg-cyan-500/15 px-3 py-2 text-sm text-cyan-100 hover:bg-cyan-500/25 disabled:opacity-40"
-                      >
-                        {sfSyncing ? "Download in corso…" : "Scarica suoni sul server"}
-                      </button>
-                    ) : (
-                      sfStatus &&
-                      !sfStatus.ready && (
-                        <p className="mt-3 text-xs text-amber-300/90">
-                          Suoni non ancora sul server: chiedi al super admin di scaricarli.
-                        </p>
-                      )
-                    ))}
-                </div>
-                <div className="rounded-lg border border-zinc-800 bg-zinc-950/60 p-3">
-                  <p className="text-xs font-medium uppercase tracking-wider text-zinc-500">
-                    SoundFont personali (.sf2)
-                  </p>
-                  <ul className="mt-2 space-y-1">
-                    {sf2Files.map((f) => (
-                      <li key={f.file} className="flex items-center justify-between gap-2 text-sm text-zinc-300">
-                        <span className="truncate font-mono text-xs" title={f.file}>
-                          {f.file} <span className="text-zinc-600">({formatMB(f.size)})</span>
-                        </span>
-                        {isSuper && (
-                          <button
-                            type="button"
-                            onClick={() => void deleteSf2(f.file)}
-                            className="rounded border border-red-500/50 px-2 py-0.5 text-xs text-red-200 hover:bg-red-900/50"
-                          >
-                            Elimina
-                          </button>
-                        )}
-                      </li>
-                    ))}
-                    {sf2Files.length === 0 && <li className="text-xs text-zinc-600">Nessun file caricato.</li>}
-                  </ul>
-                  {isSuper ? (
-                    <div className="mt-3">
-                      <label className="inline-block">
-                        <span className="cursor-pointer rounded-lg border border-fuchsia-500/40 bg-fuchsia-500/15 px-3 py-2 text-sm text-fuchsia-100 hover:bg-fuchsia-500/25">
-                          {sf2Uploading ? `Caricamento… ${sf2UploadPct ?? 0}%` : "Carica .sf2"}
-                        </span>
-                        <input
-                          ref={sf2InputRef}
-                          type="file"
-                          accept=".sf2,.sf3"
-                          disabled={sf2Uploading}
-                          className="hidden"
-                          onChange={(e) => {
-                            const f = e.target.files?.[0];
-                            if (f) void uploadSf2(f);
-                          }}
-                        />
-                      </label>
-                      <p className="mt-2 text-xs text-zinc-600">Max {SF2_MAX_UPLOAD_LABEL} per file.</p>
-                      {sf2Uploading && sf2UploadPct != null && (
-                        <div className="mt-2 max-w-xs">
-                          <div className="h-2 overflow-hidden rounded-full bg-zinc-800">
-                            <div
-                              className="h-full rounded-full bg-fuchsia-500 transition-[width] duration-150"
-                              style={{ width: `${sf2UploadPct}%` }}
-                            />
-                          </div>
-                          <p className="mt-1 text-xs text-zinc-500">{sf2UploadPct}%</p>
-                        </div>
-                      )}
-                    </div>
-                  ) : (
-                    <p className="mt-3 text-xs text-zinc-600">
-                      Caricamento ed eliminazione gestiti dal super admin.
-                    </p>
-                  )}
-                </div>
-              </div>
-            )}
-          </section>
         </>
       )}
     </div>

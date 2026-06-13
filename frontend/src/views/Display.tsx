@@ -482,32 +482,58 @@ export function Display() {
 
   return (
     <div className="kg-page-bg flex h-dvh flex-col overflow-hidden">
-      {/* l'header (PIN, coda) serve in attesa: durante l'esibizione tutto lo schermo è palco */}
-      {!live && (
-      <header className="flex flex-wrap items-center justify-between gap-4 border-b border-zinc-800/80 bg-zinc-950/40 px-4 py-4 backdrop-blur-md md:px-8">
-        <div>
-          <p className="font-display text-[10px] uppercase tracking-[0.45em] text-fuchsia-400/90">Schermo sala</p>
-          <p className="font-display mt-1 text-sm font-medium text-zinc-200">
-            {eventInfo ? eventInfo.name : `Event ${eventId.slice(0, 8)}…`}
-            {eventInfo?.location && <span className="text-zinc-500"> · {eventInfo.location}</span>}
-          </p>
-        </div>
-        <div className="flex flex-wrap items-end gap-4">
-          {eventInfo && (
-            <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 px-4 py-2 text-left">
-              <p className="text-[10px] uppercase tracking-wider text-zinc-500">PIN serata</p>
-              <p className="font-display text-2xl font-semibold tracking-[0.2em] text-fuchsia-300">
-                {eventInfo.joinCode}
+      <header className="flex shrink-0 items-start justify-between gap-4 border-b border-zinc-800/80 bg-zinc-950/40 px-4 py-3 backdrop-blur-md md:px-8 md:py-4">
+        <div className="min-w-0 flex-1 text-left">
+          {live ? (
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+              <p className="font-display text-lg text-zinc-300 md:text-xl">
+                <span className="font-semibold text-white">{live.user.nickname}</span>
+                <span className="text-zinc-500"> · </span>
+                <span className="text-fuchsia-300/90">in esibizione</span>
+              </p>
+              <p className="rounded-full border border-amber-500/40 bg-amber-500/10 px-3 py-1 text-amber-200 md:px-4 md:py-1.5">
+                ★{" "}
+                <span className="font-display text-base font-semibold md:text-lg">
+                  {voteAvg != null ? voteAvg.toFixed(1) : "—"}
+                </span>
+                <span className="ml-2 text-xs text-amber-200/70">
+                  ({voteCount} {voteCount === 1 ? "voto" : "voti"})
+                </span>
+              </p>
+              <p className="max-w-md text-sm text-zinc-500 md:max-w-xl">
+                {live.song?.title ?? live.booking?.ytTitle ?? ""}
+                {live.song?.source === "MIDI" && live.song.artist ? ` — ${live.song.artist}` : ""}
               </p>
             </div>
+          ) : (
+            <div className="flex flex-wrap items-end gap-3 md:gap-4">
+              {eventInfo && (
+                <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 px-4 py-2 text-left">
+                  <p className="text-[10px] uppercase tracking-wider text-zinc-500">PIN serata</p>
+                  <p className="font-display text-2xl font-semibold tracking-[0.2em] text-fuchsia-300">
+                    {eventInfo.joinCode}
+                  </p>
+                </div>
+              )}
+              <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 px-4 py-2 text-left">
+                <p className="text-[10px] uppercase tracking-wider text-zinc-500">In coda</p>
+                <p className="font-display text-2xl font-semibold tabular-nums text-cyan-300">{queueLen}</p>
+              </div>
+            </div>
           )}
-          <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 px-4 py-2 text-right">
-            <p className="text-[10px] uppercase tracking-wider text-zinc-500">In coda</p>
-            <p className="font-display text-2xl font-semibold tabular-nums text-cyan-300">{queueLen}</p>
-          </div>
         </div>
+
+        {eventInfo && (
+          <div className="shrink-0 max-w-[45%] text-right">
+            <p className="font-display text-sm font-semibold leading-snug text-zinc-100 md:text-base">
+              {eventInfo.name}
+            </p>
+            {eventInfo.location && eventInfo.location !== "—" && (
+              <p className="mt-0.5 text-xs leading-snug text-zinc-500 md:text-sm">{eventInfo.location}</p>
+            )}
+          </div>
+        )}
       </header>
-      )}
 
       <main
         className={`flex min-h-0 flex-1 flex-col text-center ${
@@ -523,28 +549,7 @@ export function Display() {
 
         {live ? (
           <div className="flex min-h-0 w-full flex-1 flex-col">
-            {/* unica riga in alto durante l'esibizione: nome, voti e titolo; il resto è palco */}
-            <div className="flex w-full shrink-0 flex-wrap items-center justify-center gap-x-4 gap-y-2">
-              <p className="font-display text-xl text-zinc-300 md:text-2xl">
-                <span className="font-semibold text-white">{live.user.nickname}</span>
-                <span className="text-zinc-500"> · </span>
-                <span className="text-fuchsia-300/90">in esibizione</span>
-              </p>
-              <p className="rounded-full border border-amber-500/40 bg-amber-500/10 px-4 py-1.5 text-amber-200">
-                ★ <span className="font-display text-lg font-semibold">{voteAvg != null ? voteAvg.toFixed(1) : "—"}</span>
-                <span className="ml-2 text-xs text-amber-200/70">
-                  ({voteCount} {voteCount === 1 ? "voto" : "voti"})
-                </span>
-              </p>
-              <p className="max-w-xl truncate text-sm text-zinc-500">
-                {live.song?.title ?? live.booking?.ytTitle ?? ""}
-                {live.song?.source === "MIDI" && live.song.artist ? ` — ${live.song.artist}` : ""}
-              </p>
-            </div>
-
-            {/* Palco: si riduce in altezza quando compare la banda commenti in basso */}
-            <div className="mt-3 flex min-h-0 w-full flex-1 flex-col md:mt-4">
-              {live.song?.source === "MIDI" && live.song.midiPath ? (
+            {live.song?.source === "MIDI" && live.song.midiPath ? (
                 <KaraokePlayer
                   key={live.performance.id}
                   songId={live.song.id}
@@ -579,7 +584,6 @@ export function Display() {
                   {live.song && <p className="text-xl text-zinc-400">{live.song.artist}</p>}
                 </div>
               )}
-            </div>
 
             {comments.length > 0 && (
               <div className="mt-3 w-full shrink-0 border-t border-zinc-700/80 bg-zinc-950/95 px-4 py-3 backdrop-blur-md md:px-8 md:py-4">

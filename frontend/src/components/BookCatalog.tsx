@@ -27,6 +27,115 @@ function formatSongMeta(s: SongDto): string {
   return head || "—";
 }
 
+function SongCoverThumb({
+  url,
+  size = "sm",
+}: {
+  url?: string | null;
+  size?: "sm" | "lg";
+}) {
+  const cls =
+    size === "lg"
+      ? "h-28 w-28 shrink-0 rounded-lg object-cover shadow-lg shadow-black/40"
+      : "h-12 w-12 shrink-0 rounded object-cover";
+  if (url) {
+    return (
+      <img
+        src={url}
+        alt=""
+        className={cls}
+        loading="lazy"
+        onError={(e) => {
+          (e.target as HTMLImageElement).style.visibility = "hidden";
+        }}
+      />
+    );
+  }
+  return (
+    <div
+      className={`flex shrink-0 items-center justify-center rounded bg-amber-500/15 text-amber-200/80 ${
+        size === "lg" ? "h-28 w-28 rounded-lg text-4xl" : "h-12 w-12 text-lg"
+      }`}
+      aria-hidden
+    >
+      🎵
+    </div>
+  );
+}
+
+function SongDetailPanel({ song }: { song: SongDto }) {
+  return (
+    <div className="border-t border-zinc-800 px-3 pb-3 pt-3">
+      <div className="flex gap-4">
+        <SongCoverThumb url={song.coverUrl} size="lg" />
+        <dl className="min-w-0 flex-1 space-y-2 text-sm">
+          <div>
+            <dt className="text-[10px] font-medium uppercase tracking-wider text-zinc-500">Titolo</dt>
+            <dd className="font-medium leading-snug text-white">{song.title}</dd>
+          </div>
+          <div>
+            <dt className="text-[10px] font-medium uppercase tracking-wider text-zinc-500">Artista</dt>
+            <dd className="text-zinc-200">{song.artist || "—"}</dd>
+          </div>
+          <div className="flex flex-wrap gap-x-4 gap-y-2">
+            {song.year != null && (
+              <div>
+                <dt className="text-[10px] font-medium uppercase tracking-wider text-zinc-500">Anno</dt>
+                <dd className="text-zinc-300">{song.year}</dd>
+              </div>
+            )}
+            {song.genre && (
+              <div>
+                <dt className="text-[10px] font-medium uppercase tracking-wider text-zinc-500">Genere</dt>
+                <dd className="text-zinc-300">{song.genre}</dd>
+              </div>
+            )}
+            {song.duration != null && song.duration > 0 && (
+              <div>
+                <dt className="text-[10px] font-medium uppercase tracking-wider text-zinc-500">Durata</dt>
+                <dd className="text-zinc-300">{formatDuration(song.duration)}</dd>
+              </div>
+            )}
+          </div>
+          {song.fileName && (
+            <div>
+              <dt className="text-[10px] font-medium uppercase tracking-wider text-zinc-500">File</dt>
+              <dd className="break-all text-xs text-zinc-500">{song.fileName}</dd>
+            </div>
+          )}
+        </dl>
+      </div>
+    </div>
+  );
+}
+
+function BookPlusButton({
+  busy,
+  onClick,
+  variant = "midi",
+}: {
+  busy: boolean;
+  onClick: () => void;
+  variant?: "midi" | "youtube";
+}) {
+  return (
+    <button
+      type="button"
+      disabled={busy}
+      aria-label="Prenota"
+      title="Prenota"
+      onClick={onClick}
+      className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-xl font-semibold leading-none text-white disabled:opacity-50 ${
+        variant === "youtube"
+          ? "bg-red-600 hover:bg-red-500"
+          : "bg-fuchsia-600 hover:bg-fuchsia-500"
+      }`}
+    >
+      {busy ? "…" : "+"}
+    </button>
+  );
+}
+
 function isAbortError(e: unknown): boolean {
   return e instanceof DOMException && e.name === "AbortError";
 }
@@ -38,30 +147,6 @@ function stripYoutubeFlags(query: string): string {
     .replace(/\b-karaoke\s+/gi, " ")
     .trim()
     .replace(/\s+/g, " ");
-}
-
-function SongCoverThumb({ url }: { url?: string | null }) {
-  if (url) {
-    return (
-      <img
-        src={url}
-        alt=""
-        className="h-12 w-12 shrink-0 rounded object-cover"
-        loading="lazy"
-        onError={(e) => {
-          (e.target as HTMLImageElement).style.visibility = "hidden";
-        }}
-      />
-    );
-  }
-  return (
-    <div
-      className="flex h-12 w-12 shrink-0 items-center justify-center rounded bg-amber-500/15 text-lg text-amber-200/80"
-      aria-hidden
-    >
-      🎵
-    </div>
-  );
 }
 
 export type BookCatalogCoreProps = {
@@ -105,6 +190,7 @@ export function BookCatalogCore({
   const [ytLoadingMore, setYtLoadingMore] = useState(false);
   const [ytQueryDone, setYtQueryDone] = useState<string | null>(null);
   const [ytPreviewId, setYtPreviewId] = useState<string | null>(null);
+  const [expandedSongId, setExpandedSongId] = useState<string | null>(null);
 
   const songsAbortRef = useRef<AbortController | null>(null);
   const ytAbortRef = useRef<AbortController | null>(null);
@@ -168,6 +254,7 @@ export function BookCatalogCore({
 
   useEffect(() => {
     const query = stripYoutubeFlags(q.trim());
+    setExpandedSongId(null);
     const delay = query ? 400 : 0;
     const timer = window.setTimeout(() => {
       void loadSongs(query, 0, false);
@@ -314,34 +401,41 @@ export function BookCatalogCore({
       {msg && <p className="mt-3 text-sm text-emerald-400">{msg}</p>}
 
       <ul className="mt-4 max-h-[26rem] space-y-2 overflow-y-auto">
-        {songs.map((s) => (
-          <li key={s.id} className="flex items-center gap-3 rounded-lg border border-zinc-800 bg-zinc-950/60 p-3">
-            <SongCoverThumb url={s.coverUrl} />
-            <div className="min-w-0 flex-1">
-              <p className="truncate font-medium text-white">
-                {s.title}{" "}
-                <span className="ml-1 rounded border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 align-middle text-[10px] uppercase text-amber-200/90">
-                  MIDI
-                </span>
-              </p>
-              <p className="truncate text-sm text-zinc-400">{formatSongMeta(s)}</p>
-              {s.fileName && (
-                <p className="truncate text-xs text-zinc-600" title={s.fileName}>
-                  {s.fileName}
-                </p>
-              )}
-            </div>
-            <MidiPreviewButton songId={s.id} />
-            <button
-              type="button"
-              disabled={bookingId === s.id}
-              onClick={() => void book(s)}
-              className="shrink-0 rounded-lg bg-fuchsia-600 px-4 py-2 text-sm font-medium text-white hover:bg-fuchsia-500 disabled:opacity-50"
+        {songs.map((s) => {
+          const expanded = expandedSongId === s.id;
+          return (
+            <li
+              key={s.id}
+              className={`rounded-lg border bg-zinc-950/60 ${
+                expanded ? "border-fuchsia-500/30" : "border-zinc-800"
+              }`}
             >
-              {bookingId === s.id ? "…" : "Prenota"}
-            </button>
-          </li>
-        ))}
+              <div className="flex items-center gap-3 p-3">
+                {!expanded && <SongCoverThumb url={s.coverUrl} size="sm" />}
+                <div className="min-w-0 flex-1">
+                  <button
+                    type="button"
+                    onClick={() => setExpandedSongId((cur) => (cur === s.id ? null : s.id))}
+                    className="w-full text-left"
+                    aria-expanded={expanded}
+                  >
+                    <p className={`font-medium text-white ${expanded ? "" : "truncate"}`}>
+                      {s.title}{" "}
+                      <span className="ml-1 rounded border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 align-middle text-[10px] uppercase text-amber-200/90">
+                        MIDI
+                      </span>
+                      <span className="ml-1 text-xs text-zinc-600">{expanded ? "▲" : "▼"}</span>
+                    </p>
+                    {!expanded && <p className="truncate text-sm text-zinc-400">{formatSongMeta(s)}</p>}
+                  </button>
+                </div>
+                <MidiPreviewButton songId={s.id} />
+                <BookPlusButton busy={bookingId === s.id} onClick={() => void book(s)} />
+              </div>
+              {expanded && <SongDetailPanel song={s} />}
+            </li>
+          );
+        })}
 
         {showYt &&
           ytResults.map((r) => (
@@ -372,14 +466,11 @@ export function BookCatalogCore({
                     {r.duration != null && <span className="text-zinc-600"> · {formatDuration(r.duration)}</span>}
                   </p>
                 </div>
-                <button
-                  type="button"
-                  disabled={bookingId === r.id}
+                <BookPlusButton
+                  busy={bookingId === r.id}
+                  variant="youtube"
                   onClick={() => void bookYt(r)}
-                  className="shrink-0 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-500 disabled:opacity-50"
-                >
-                  {bookingId === r.id ? "…" : "Prenota"}
-                </button>
+                />
               </div>
               {ytPreviewId === r.id && (
                 <div className="mt-3 aspect-video w-full overflow-hidden rounded-lg border border-zinc-800 bg-black">

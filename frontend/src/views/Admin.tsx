@@ -5,6 +5,7 @@ import { AdminBookSection } from "../components/admin/AdminBookSection";
 import { AccountSection } from "../components/admin/AccountSection";
 import { MidiCatalogSection } from "../components/admin/MidiCatalogSection";
 import { MidiDebugSection } from "../components/admin/MidiDebugSection";
+import { SoundfontAdminSection } from "../components/admin/SoundfontAdminSection";
 
 const base = import.meta.env.VITE_API_URL ?? "";
 const ADMIN_TOKEN_KEY = "karaoke_admin_jwt";
@@ -226,26 +227,24 @@ export function Admin() {
             >
               👤 Account
             </button>
-            {isSuper && (
-              <button
-                type="button"
-                role="tab"
-                aria-selected={tab === "tech"}
-                onClick={() => setTab("tech")}
-                className={
-                  tab === "tech"
-                    ? "rounded-lg bg-zinc-700 px-4 py-2 font-medium text-white"
-                    : "rounded-lg px-4 py-2 text-zinc-500 hover:text-white"
-                }
-              >
-                🔧 Tecnico
-              </button>
-            )}
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab === "tech"}
+              onClick={() => setTab("tech")}
+              className={
+                tab === "tech"
+                  ? "rounded-lg bg-zinc-700 px-4 py-2 font-medium text-white"
+                  : "rounded-lg px-4 py-2 text-zinc-500 hover:text-white"
+              }
+            >
+              🔧 Tecnico
+            </button>
           </nav>
         </header>
 
         <main className="mt-6">
-          {tab === "console" && <LiveConsole authHeader={authHeader} isSuper={isSuper} />}
+          {tab === "console" && <LiveConsole authHeader={authHeader} />}
 
           {tab === "book" && <AdminBookSection authHeader={authHeader} />}
 
@@ -253,14 +252,16 @@ export function Admin() {
 
           {tab === "account" && <AccountSection me={me} authHeader={authHeader} />}
 
-          {tab === "tech" && isSuper && (
-            <div className="space-y-2">
+          {tab === "tech" && (
+            <div className="space-y-6">
               <p className="text-sm text-zinc-500">
-                Strumenti del server (solo super admin). Durante la serata resta su{" "}
+                Timbro MIDI e impostazioni audio della serata. Durante la serata resta su{" "}
                 <strong className="text-zinc-300">Conduzione</strong>.
               </p>
 
-              <MidiDebugSection authHeader={authHeader} />
+              <SoundfontAdminSection authHeader={authHeader} isSuper={isSuper} />
+
+              {isSuper && <MidiDebugSection authHeader={authHeader} />}
             </div>
           )}
         </main>

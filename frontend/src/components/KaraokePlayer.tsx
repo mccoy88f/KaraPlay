@@ -10,29 +10,38 @@ import { getSoundfontBank } from "../lib/soundfontBanks";
 import type { SoundfontBankId } from "../lib/soundfontBanks";
 import { midiNumberToName } from "../lib/midiNote";
 import { buildPlaybackMidiBuffer, normalizeMutedTrack } from "../lib/midiMute";
+import { fetchArrayBufferWithProgress } from "../lib/fetchWithProgress";
 import { STAGE_SHELL_CLASS, StageStartOverlay } from "./StageStartOverlay";
 import { StageTransportBar } from "./StageTransportBar";
 
 const base = import.meta.env.VITE_API_URL ?? "";
 const CONTROLS_HIDE_MS = 3000;
 
-/** I file .sf2 possono superare i 100MB: una sola fetch per sessione, condivisa tra i brani. */
-const sf2Cache = new Map<string, Promise<ArrayBuffer>>();
+/** Un solo SF2 in RAM: si libera passando a Gleitz o cambiando file .sf2. */
+let activeSf2: { file: string; buffer: ArrayBuffer } | null = null;
 
-function fetchSf2(file: string): Promise<ArrayBuffer> {
-  const cached = sf2Cache.get(file);
-  if (cached) return cached;
-  const p = (async () => {
-    const res = await fetch(`${base}/api/media/sf2/${encodeURIComponent(file)}`);
-    if (!res.ok) {
-      throw new Error("SoundFont non presente sul server: caricalo da /admin → Coda live.");
-    }
-    return res.arrayBuffer();
-  })();
-  p.catch(() => sf2Cache.delete(file));
-  sf2Cache.set(file, p);
-  return p;
+function releaseSf2Memory() {
+  activeSf2 = null;
 }
+
+async function loadSf2Buffer(file: string, onProgress?: (pct: number) => void): Promise<ArrayBuffer> {
+  if (activeSf2?.file === file) {
+    onProgress?.(100);
+    return activeSf2.buffer;
+  }
+  releaseSf2Memory();
+  const buffer = await fetchArrayBufferWithProgress(
+    `${base}/api/media/sf2/${encodeURIComponent(file)}`,
+    (downloadPct) => onProgress?.(Math.round(downloadPct * 0.65))
+  );
+  activeSf2 = { file, buffer };
+  onProgress?.(68);
+  return buffer;
+}
+
+type LoadProgress =
+  | { kind: "gleitz"; done: number; total: number }
+  | { kind: "sf2"; pct: number };
 
 /**
  * Trasposizione live in SF2 via RPN Coarse Tuning (MIDI standard: CC101=0, CC100=2, CC6=64±n).
@@ -126,7 +135,7 @@ export function KaraokePlayer({
   const [paused, setPaused] = useState(false);
   const [transportSec, setTransportSec] = useState(0);
   const [loadingSf, setLoadingSf] = useState(false);
-  const [sfProgress, setSfProgress] = useState<{ done: number; total: number } | null>(null);
+  const [loadProgress, setLoadProgress] = useState<LoadProgress | null>(null);
   const [controlsVisible, setControlsVisible] = useState(true);
 
   const disposeRef = useRef<(() => void) | null>(null);
@@ -261,6 +270,11 @@ export function KaraokePlayer({
     gleitzPumpRef.current?.rescheduleFromNow();
   }, [transposeSemitones]);
 
+  // Gleitz attivo → libera il buffer SF2 (mai entrambi in RAM).
+  useEffect(() => {
+    if (bank.kind === "gleitz") releaseSf2Memory();
+  }, [bank.kind]);
+
   const bumpControlsVisibility = useCallback(() => {
     setControlsVisible(true);
     if (hideControlsTimerRef.current != null) window.clearTimeout(hideControlsTimerRef.current);
@@ -277,15 +291,25 @@ export function KaraokePlayer({
 
     const ac = new AudioContext({ latencyHint: "playback" });
     setLoadingSf(true);
+    setLoadProgress({ kind: "sf2", pct: 0 });
     try {
       await ac.resume();
       await ac.audioWorklet.addModule(spessaWorkletUrl);
       const synth = new WorkletSynthesizer(ac);
       synth.connect(ac.destination);
-      // .slice(0): il worker può trasferire il buffer, la cache deve restare valida.
-      const sfBuf = await fetchSf2(sf2File);
+      setLoadProgress({ kind: "sf2", pct: 5 });
+      let sfBuf: ArrayBuffer;
+      try {
+        sfBuf = await loadSf2Buffer(sf2File, (pct) => setLoadProgress({ kind: "sf2", pct }));
+      } catch {
+        throw new Error("SoundFont non presente sul server: caricalo da Tecnico → Suono MIDI.");
+      }
+      setLoadProgress({ kind: "sf2", pct: 72 });
+      // .slice(0): il worker può trasferire il buffer; la copia in activeSf2 deve restare valida.
       await synth.soundBankManager.addSoundBank(sfBuf.slice(0), "main");
+      setLoadProgress({ kind: "sf2", pct: 90 });
       await synth.isReady;
+      setLoadProgress({ kind: "sf2", pct: 100 });
 
       // skipToFirstNoteOn falso: il tempo deve restare allineato ai timestamp dei testi.
       const seq = new Sequencer(synth, { skipToFirstNoteOn: false });
@@ -320,6 +344,7 @@ export function KaraokePlayer({
         },
       };
       setLoadingSf(false);
+      setLoadProgress(null);
       setPaused(false);
       setPlaying(true);
       bumpControlsVisibility();
@@ -341,6 +366,7 @@ export function KaraokePlayer({
       };
     } catch (e) {
       setLoadingSf(false);
+      setLoadProgress(null);
       setLoadError(e instanceof Error ? e.message : "Errore caricamento SoundFont");
       void ac.close().catch(() => {});
     }
@@ -355,10 +381,11 @@ export function KaraokePlayer({
     if (!midi) return;
     disposeRef.current?.();
     disposeRef.current = null;
+    releaseSf2Memory();
 
     const ac = new AudioContext({ latencyHint: "playback" });
     setLoadingSf(true);
-    setSfProgress(null);
+    setLoadProgress(null);
 
     const players = new Map<string, Awaited<ReturnType<typeof Soundfont.instrument>>>();
     const cleanupAc = () => void ac.close().catch(() => {});
@@ -394,8 +421,8 @@ export function KaraokePlayer({
       gleitzLiveRef.current = { ctx: ac, gainOfTrack };
       gleitzPlayersRef.current = new Map();
 
-      // strumenti caricati per traccia (lo stesso file mp3 è in cache HTTP: il costo extra è solo la decodifica)
-      setSfProgress({ done: 0, total: melodic.length });
+      // strumenti caricati per traccia (solo quelli del brano corrente restano in RAM)
+      setLoadProgress({ kind: "gleitz", done: 0, total: melodic.length });
       let loaded = 0;
       await Promise.all(
         melodic.map(async ({ track, trackIndex }) => {
@@ -408,12 +435,12 @@ export function KaraokePlayer({
           players.set(String(trackIndex), p);
           gleitzPlayersRef.current.set(trackIndex, p);
           loaded += 1;
-          setSfProgress({ done: loaded, total: melodic.length });
+          setLoadProgress({ kind: "gleitz", done: loaded, total: melodic.length });
         })
       );
 
       setLoadingSf(false);
-      setSfProgress(null);
+      setLoadProgress(null);
 
       type Ev = {
         time: number;
@@ -533,7 +560,7 @@ export function KaraokePlayer({
     } catch (e) {
       console.error("[karaoke] avvio gleitz fallito", e);
       setLoadingSf(false);
-      setSfProgress(null);
+      setLoadProgress(null);
       setLoadError(e instanceof Error ? e.message : "Errore durante l'avvio del brano");
       cleanupAc();
     }
@@ -547,13 +574,28 @@ export function KaraokePlayer({
         await startGleitzPlayback();
       }
     } catch (e) {
-      // Rete di sicurezza: qualsiasi errore deve arrivare a schermo, mai un click "a vuoto".
       console.error("[karaoke] avvio fallito", e);
       setLoadingSf(false);
-      setSfProgress(null);
+      setLoadProgress(null);
       setLoadError(e instanceof Error ? e.message : "Avvio non riuscito");
     }
   }, [bank.kind, startSf2Playback, startGleitzPlayback]);
+
+  const loadProgressPct =
+    loadingSf && loadProgress
+      ? loadProgress.kind === "sf2"
+        ? loadProgress.pct
+        : Math.round((loadProgress.done / Math.max(1, loadProgress.total)) * 100)
+      : null;
+
+  const loadingButtonLabel = (() => {
+    if (!loadingSf) return "▶ Avvia karaoke";
+    if (loadProgress?.kind === "sf2") return `Carico SoundFont… ${loadProgress.pct}%`;
+    if (loadProgress?.kind === "gleitz") {
+      return `Carico strumenti… ${loadProgress.done}/${loadProgress.total}`;
+    }
+    return "Carico strumenti…";
+  })();
 
   function togglePause() {
     const c = controlsRef.current;
@@ -693,14 +735,9 @@ export function KaraokePlayer({
           error={loadError}
           showButton={Boolean(midi && !loadError)}
           waitingText={!midi && !loadError ? "Carico il brano…" : null}
-          buttonLabel={
-            loadingSf
-              ? sfProgress
-                ? `Carico strumenti… ${sfProgress.done}/${sfProgress.total}`
-                : "Carico strumenti…"
-              : "▶ Avvia karaoke"
-          }
+          buttonLabel={loadingButtonLabel}
           buttonDisabled={loadingSf}
+          loadProgressPct={loadProgressPct}
           onStart={() => void startPlayback()}
         />
       )}
