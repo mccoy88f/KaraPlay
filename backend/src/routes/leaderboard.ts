@@ -31,7 +31,7 @@ export async function registerLeaderboardRoutes(fastify: FastifyInstance): Promi
     const row = await prisma.leaderboard.findUnique({ where: { userId: jwt.sub } });
     const user = await prisma.user.findUnique({
       where: { id: jwt.sub },
-      select: { nickname: true, email: true, emailVerified: true },
+      select: { nickname: true, email: true, phone: true, emailVerified: true },
     });
     if (!user) {
       return reply.code(404).send({ error: "Utente non trovato" });
@@ -39,6 +39,7 @@ export async function registerLeaderboardRoutes(fastify: FastifyInstance): Promi
     return reply.send({
       nickname: user.nickname,
       email: user.email,
+      phone: user.phone,
       emailVerified: user.emailVerified,
       performances: row?.performances ?? 0,
       avgScore: row && row.performances > 0 ? Number((row.totalScore / row.performances).toFixed(2)) : null,

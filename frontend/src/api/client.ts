@@ -3,23 +3,37 @@ import type { QueueBookingDto } from "../lib/queueDisplay";
 const base = import.meta.env.VITE_API_URL ?? "";
 
 export type JoinResponse = {
-  token: string;
-  user: { id: string; nickname: string };
-  event: {
+  token?: string;
+  user?: { id: string; nickname: string; email?: string | null; phone?: string | null };
+  event?: {
     id: string;
     name: string;
     joinCode: string;
     status: string;
-    /** Banco GM scelto dall'host (admin). */
     soundfontBankId?: string;
   };
+  needsNicknameConfirm?: boolean;
+  storedNickname?: string;
+  requestedNickname?: string;
 };
 
-export async function apiJoin(nickname: string, eventJoinCode: string): Promise<JoinResponse> {
+export type JoinRequest = {
+  nickname: string;
+  contact: string;
+  eventJoinCode: string;
+  confirmNicknameChange?: boolean;
+};
+
+export async function apiJoin(body: JoinRequest): Promise<JoinResponse> {
   const res = await fetch(`${base}/api/auth/join`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ nickname, eventJoinCode }),
+    body: JSON.stringify({
+      nickname: body.nickname,
+      contact: body.contact,
+      eventJoinCode: body.eventJoinCode,
+      ...(body.confirmNicknameChange ? { confirmNicknameChange: true } : {}),
+    }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
@@ -286,6 +300,7 @@ export async function apiGetGlobalLeaderboard(): Promise<{ entries: LeaderboardE
 export type MyStats = {
   nickname: string;
   email: string | null;
+  phone: string | null;
   emailVerified: boolean;
   performances: number;
   avgScore: number | null;

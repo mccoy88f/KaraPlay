@@ -7,7 +7,7 @@ import {
   getStoredEvent,
   getStoredNickname,
 } from "../api/client";
-import type { DisplayTransportPayload, DisplayTransportState } from "../lib/displayTransport";
+import { gobboTransportSec, gobboTransportState, type DisplayTransportPayload, type DisplayTransportState } from "../lib/displayTransport";
 import { isGuestSessionValid, reconcileGuestSession } from "../lib/authSession";
 import { KaraokeLyricsFollower } from "../components/KaraokeLyricsFollower";
 import { YoutubeVideoFollower } from "../components/YoutubeVideoFollower";
@@ -128,14 +128,18 @@ export function DisplayFollower() {
       if (payload.performanceId !== liveRef.current?.performanceId) return;
 
       if (liveRef.current?.source === "MIDI") {
-        setTransport({ sec: payload.sec, synced: true });
+        setTransport({ sec: gobboTransportSec(payload.sec), synced: true });
         return;
       }
 
       if (!liveRef.current?.isYoutube) return;
       if (liveRef.current.source !== "YOUTUBE" || !liveRef.current.bookingId) return;
 
-      const target = { sec: payload.sec, playing: payload.playing, paused: payload.paused };
+      const target = gobboTransportState({
+        sec: payload.sec,
+        playing: payload.playing,
+        paused: payload.paused,
+      });
 
       if (videoSyncRef.current.connecting) {
         setVideoSync({

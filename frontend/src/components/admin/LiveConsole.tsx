@@ -425,6 +425,13 @@ export function LiveConsole({ authHeader }: Props) {
     });
   }
 
+  async function move(b: QueueBooking, direction: "up" | "down") {
+    await adminFetch(`/admin/bookings/${b.id}/move`, {
+      method: "POST",
+      body: JSON.stringify({ direction }),
+    });
+  }
+
   function handleQueueDragStart(e: React.DragEvent, id: string) {
     setDragId(id);
     e.dataTransfer.effectAllowed = "move";
@@ -872,6 +879,26 @@ export function LiveConsole({ authHeader }: Props) {
                           {t("admin.live.downloadBtn")}
                         </button>
                       )}
+                      <div className="flex flex-col gap-0.5">
+                        <button
+                          type="button"
+                          disabled={i === 0}
+                          onClick={() => void move(b, "up")}
+                          className="rounded border border-zinc-700 px-1.5 text-xs text-zinc-400 hover:bg-zinc-800 disabled:opacity-25"
+                          title={t("admin.live.moveUp")}
+                        >
+                          ↑
+                        </button>
+                        <button
+                          type="button"
+                          disabled={i >= upcoming.length - 1}
+                          onClick={() => void move(b, "down")}
+                          className="rounded border border-zinc-700 px-1.5 text-xs text-zinc-400 hover:bg-zinc-800 disabled:opacity-25"
+                          title={t("admin.live.moveDown")}
+                        >
+                          ↓
+                        </button>
+                      </div>
                       <button
                         type="button"
                         onClick={() => void remove(b)}

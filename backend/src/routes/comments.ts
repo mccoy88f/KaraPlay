@@ -33,6 +33,9 @@ export async function registerCommentRoutes(fastify: FastifyInstance): Promise<v
       if (performance.endedAt) {
         return reply.code(403).send({ error: "Commenti chiusi: esibizione terminata" });
       }
+      if (performance.userId === jwt.sub) {
+        return reply.code(403).send({ error: "Non puoi commentare la tua esibizione" });
+      }
 
       const [comment] = await prisma.$transaction([
         prisma.comment.create({

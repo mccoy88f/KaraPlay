@@ -11,7 +11,7 @@ const moveSchema = z.object({
 });
 
 const reorderSchema = z.object({
-  bookingIds: z.array(z.string().uuid()).min(1),
+  bookingIds: z.array(z.string().min(1)).min(1),
 });
 
 const REORDERABLE_STATUSES = new Set(["APPROVED", "READY", "PROCESSING"]);
@@ -40,19 +40,20 @@ export async function registerAdminQueueRoutes(fastify: FastifyInstance): Promis
       const list = await prisma.booking.findMany({
         where: { eventId: booking.eventId },
         orderBy: { position: "asc" },
-        select: { id: true, position: true },
+        select: { id: true, position: true, status: true },
       });
-      const idx = list.findIndex((b) => b.id === booking.id);
+      const reorderable = list.filter((b) => REORDERABLE_STATUSES.has(b.status));
+      const idx = reorderable.findIndex((b) => b.id === booking.id);
       if (idx < 0) {
-        return reply.code(404).send({ error: "Prenotazione non trovata" });
+        return reply.code(400).send({ error: "Prenotazione non spostabile" });
       }
       const swapWith = direction === "up" ? idx - 1 : idx + 1;
-      if (swapWith < 0 || swapWith >= list.length) {
+      if (swapWith < 0 || swapWith >= reorderable.length) {
         return reply.code(400).send({ error: "Impossibile spostare in questa direzione" });
       }
 
-      const a = list[idx]!;
-      const b = list[swapWith]!;
+      const a = reorderable[idx]!;
+      const b = reorderable[swapWith]!;
       await prisma.$transaction([
         prisma.booking.update({ where: { id: a.id }, data: { position: b.position } }),
         prisma.booking.update({ where: { id: b.id }, data: { position: a.position } }),

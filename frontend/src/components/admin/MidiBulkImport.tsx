@@ -5,15 +5,6 @@ import { useI18n } from "../../i18n/context";
 
 const base = import.meta.env.VITE_API_URL ?? "";
 
-export type CatalogSongRef = {
-  id: string;
-  title: string;
-  artist: string;
-  fileName?: string | null;
-  source: string;
-  midiPath?: string | null;
-};
-
 type RowStatus = "running" | "ok" | "skipped" | "error";
 
 type LogRow = {
@@ -36,19 +27,15 @@ type CancelPrompt = {
 type Props = {
   authHeader: () => Record<string, string>;
   existingFileNames: string[];
-  catalogSongs: CatalogSongRef[];
-  selectedSongIds: string[];
   onDone: () => void;
 };
 
 /**
  * Importazione MIDI massiva: uno zip con dentro .mid/.midi/.kar.
  */
-export function MidiBulkImport({ authHeader, existingFileNames, catalogSongs, selectedSongIds, onDone }: Props) {
+export function MidiBulkImport({ authHeader, existingFileNames, onDone }: Props) {
   const { t } = useI18n();
   const unknownArtist = t("admin.bulkImport.unknownArtist");
-  const midiCatalogSongs = catalogSongs.filter((s) => s.source === "MIDI" && s.midiPath);
-  const selectedMidiIds = selectedSongIds.filter((id) => midiCatalogSongs.some((s) => s.id === id));
   const [rows, setRows] = useState<LogRow[]>([]);
   const [running, setRunning] = useState(false);
   const [useLookup, setUseLookup] = useState(true);
@@ -239,119 +226,6 @@ export function MidiBulkImport({ authHeader, existingFileNames, catalogSongs, se
     }
   }
 
-  async function runRemeta(targets: CatalogSongRef[]) {
-    if (targets.length === 0) return;
-    setRunning(true);
-    setRows([]);
-    setProgress(null);
-    setCancelPrompt(null);
-    cancelRef.current = false;
-    setUndoErr(null);
-    let interrupted = false;
-    let processedCount = 0;
-
-    try {
-      setProgress({ done: 0, total: targets.length });
-
-      for (let i = 0; i < targets.length; i++) {
-        if (cancelRef.current) {
-          interrupted = true;
-          break;
-        }
-
-        const song = targets[i];
-        const name = song.fileName ?? `${song.title}.mid`;
-        setRows((prev) => [...prev, { file: name, status: "running", songId: song.id, title: song.title }]);
-        const idx = i;
-
-        try {
-          const midiRes = await fetch(`${base}/api/media/song/${encodeURIComponent(song.id)}/midi`);
-          if (!midiRes.ok) {
-            patchRow(idx, {
-              status: "error",
-              title: song.title,
-              artist: song.artist,
-              note: `MIDI HTTP ${midiRes.status}`,
-            });
-            processedCount = i + 1;
-            setProgress({ done: processedCount, total: targets.length });
-            continue;
-          }
-
-          const buf = await midiRes.arrayBuffer();
-          if (cancelRef.current) {
-            interrupted = true;
-            patchRow(idx, { status: "skipped", note: t("admin.bulkImport.cancelledRow") });
-            break;
-          }
-
-          const meta = await resolveMidiUploadMeta(buf, name, {
-            unknownArtist,
-            useLookup,
-            authHeader,
-            base,
-          });
-
-          const body: Record<string, string | number | null> = {
-            title: meta.title,
-            artist: meta.artist,
-          };
-          if (meta.year != null) body.year = meta.year;
-          if (useLookup && meta.genre) body.genre = meta.genre;
-          if (useLookup && meta.coverUrl) body.coverUrl = meta.coverUrl;
-
-          const putRes = await fetch(`${base}/api/admin/songs/${encodeURIComponent(song.id)}`, {
-            method: "PUT",
-            headers: { "Content-Type": "application/json", ...authHeader() },
-            body: JSON.stringify(body),
-          });
-          const putData = await putRes.json().catch(() => ({}));
-          if (!putRes.ok) {
-            patchRow(idx, {
-              status: "error",
-              title: meta.title,
-              artist: meta.artist,
-              note: (putData as { error?: string }).error ?? `HTTP ${putRes.status}`,
-            });
-          } else {
-            patchRow(idx, {
-              status: "ok",
-              songId: song.id,
-              title: meta.title,
-              artist: meta.artist,
-              year: meta.year,
-              genre: meta.genre,
-              note: meta.artist === unknownArtist ? t("admin.bulkImport.fixArtist") : undefined,
-            });
-          }
-        } catch (e) {
-          patchRow(idx, { status: "error", note: e instanceof Error ? e.message : "?" });
-        }
-
-        processedCount = i + 1;
-        setProgress({ done: processedCount, total: targets.length });
-      }
-    } finally {
-      setRunning(false);
-      if (!interrupted) onDone();
-    }
-  }
-
-  function startRemetaSelected() {
-    const targets = midiCatalogSongs.filter((s) => selectedMidiIds.includes(s.id));
-    if (targets.length === 0) {
-      setRows([{ file: "—", status: "error", note: t("admin.bulkImport.remetaNoneSelected") }]);
-      return;
-    }
-    void runRemeta(targets);
-  }
-
-  function startRemetaAll() {
-    if (midiCatalogSongs.length === 0) return;
-    if (!window.confirm(t("admin.bulkImport.remetaConfirmAll", { n: midiCatalogSongs.length }))) return;
-    void runRemeta(midiCatalogSongs);
-  }
-
   const okCount = rows.filter((r) => r.status === "ok").length;
   const skipCount = rows.filter((r) => r.status === "skipped").length;
   const errCount = rows.filter((r) => r.status === "error").length;
@@ -401,29 +275,6 @@ export function MidiBulkImport({ authHeader, existingFileNames, catalogSongs, se
             {t("admin.bulkImport.stopBtn")}
           </button>
         )}
-      </div>
-
-      <div className="mt-6 border-t border-zinc-800 pt-6">
-        <h4 className="font-display text-sm font-semibold text-white">{t("admin.bulkImport.remetaTitle")}</h4>
-        <p className="mt-1 text-sm text-zinc-400">{t("admin.bulkImport.remetaIntro")}</p>
-        <div className="mt-3 flex flex-wrap gap-2">
-          <button
-            type="button"
-            disabled={running || selectedMidiIds.length === 0}
-            onClick={() => startRemetaSelected()}
-            className="rounded-xl border border-fuchsia-500/40 bg-fuchsia-500/10 px-4 py-2 text-sm font-medium text-fuchsia-100 hover:bg-fuchsia-500/20 disabled:opacity-40"
-          >
-            {t("admin.bulkImport.remetaSelectedBtn", { n: selectedMidiIds.length })}
-          </button>
-          <button
-            type="button"
-            disabled={running || midiCatalogSongs.length === 0}
-            onClick={() => startRemetaAll()}
-            className="rounded-xl border border-fuchsia-500/30 px-4 py-2 text-sm text-fuchsia-200/90 hover:bg-fuchsia-950/30 disabled:opacity-40"
-          >
-            {t("admin.bulkImport.remetaAllBtn", { n: midiCatalogSongs.length })}
-          </button>
-        </div>
       </div>
 
       {cancelPrompt && !running && (

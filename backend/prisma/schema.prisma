@@ -12,7 +12,7 @@ model User {
   nickname      String
   email         String?  @unique
   emailVerified Boolean  @default(false)
-  phone         String?
+  phone         String?  @unique
   marketingOk   Boolean  @default(false)
   createdAt     DateTime @default(now())
   sessionToken  String?  @unique

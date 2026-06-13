@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import {
   apiGetLivePerformance,
   apiGetVotes,
@@ -179,9 +180,21 @@ export function LiveTab({ eventId, userNickname }: { eventId: string; userNickna
       {err && <p className="mt-3 text-sm text-red-400">{err}</p>}
 
       {isMine ? (
-        <p className="mt-5 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-100">
-          <span className="font-semibold">{t("live.yourTurn")}</span> {t("live.onStageHint")}
-        </p>
+        <div className="mt-5 space-y-3">
+          <p className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-100">
+            <span className="font-semibold">{t("live.yourTurn")}</span> {t("live.onStageHint")}
+          </p>
+          <Link
+            to="/display"
+            target="_blank"
+            rel="noopener noreferrer"
+            title={t("join.footer.gobboTitle")}
+            className="font-display flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-cyan-600 to-cyan-500 px-5 py-3.5 text-sm font-semibold text-white shadow-lg shadow-cyan-950/30 hover:from-cyan-500 hover:to-cyan-400"
+          >
+            {t("live.openGobbo")}
+          </Link>
+          <p className="text-center text-xs text-zinc-500">{t("live.openGobboHint")}</p>
+        </div>
       ) : (
         <div className="mt-5">
           <label className="flex flex-col gap-2 text-sm" htmlFor="vote-slider">
@@ -214,6 +227,7 @@ export function LiveTab({ eventId, userNickname }: { eventId: string; userNickna
         </div>
       )}
 
+      {!isMine && (
       <div className="mt-6">
         <p className="text-xs font-medium uppercase tracking-wider text-zinc-500">{t("live.comment")}</p>
         <div className="mt-2 flex flex-wrap gap-2">
@@ -262,6 +276,7 @@ export function LiveTab({ eventId, userNickname }: { eventId: string; userNickna
           </ul>
         )}
       </div>
+      )}
     </div>
   );
 }

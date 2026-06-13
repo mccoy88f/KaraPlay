@@ -6,7 +6,7 @@ import { TurnAlertBar } from "../components/join/TurnAlertBar";
 import { LeaderboardTab } from "../components/join/LeaderboardTab";
 import { ProfileTab } from "../components/join/ProfileTab";
 import { getStoredEvent, getStoredNickname, getStoredToken } from "../api/client";
-import { reconcileGuestSession } from "../lib/authSession";
+import { clearGuestSession, reconcileGuestSession } from "../lib/authSession";
 import { useI18n } from "../i18n/context";
 
 type Tab = "live" | "book" | "leaderboard" | "profile";
@@ -99,8 +99,12 @@ export function JoinHome() {
         <footer className="mt-auto border-t border-zinc-800/80 pt-6 text-sm text-zinc-500">
           <nav className="flex items-center justify-between gap-4">
             <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-              <Link to="/join/enter" className="hover:text-white">
-                {t("join.footer.changeNickname")}
+              <Link
+                to="/join/enter"
+                onClick={() => clearGuestSession()}
+                className="hover:text-white"
+              >
+                {t("join.footer.changeEvent")}
               </Link>
               {token && event && (
                 <>

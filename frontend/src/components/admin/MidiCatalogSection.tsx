@@ -1,5 +1,6 @@
 import { Fragment, startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { extractMidiMeta } from "../../lib/midiMeta";
+import { notifyCatalogChanged, syncCatalogSelection } from "../../lib/catalogSelection";
 import { useI18n } from "../../i18n/context";
 import { MidiBulkImport } from "./MidiBulkImport";
 import { SongCoverThumb } from "../SongCoverThumb";
@@ -143,6 +144,10 @@ export function MidiCatalogSection({ authHeader }: Props) {
   }, [catalogQuery, pageSize, catalogView]);
 
   useEffect(() => {
+    syncCatalogSelection([...selectedIds]);
+  }, [selectedIds]);
+
+  useEffect(() => {
     if (page > totalPages) setPage(totalPages);
   }, [page, totalPages]);
 
@@ -226,6 +231,7 @@ export function MidiCatalogSection({ authHeader }: Props) {
       });
       if (editing && ids.includes(editing.id)) setEditing(null);
       await loadSongs();
+      notifyCatalogChanged();
     } finally {
       setDeleteBusy(false);
     }
@@ -243,11 +249,10 @@ export function MidiCatalogSection({ authHeader }: Props) {
     void deleteSongIds(ids);
   }
 
-  function confirmDeleteAll() {
-    const ids = catalogQuery.trim() ? filteredIds : songs.map((s) => s.id);
+  function confirmDeleteFiltered() {
+    const ids = filteredIds;
     if (ids.length === 0) return;
-    const key = catalogQuery.trim() ? "admin.catalog.deleteConfirmFiltered" : "admin.catalog.deleteConfirmAll";
-    if (!window.confirm(t(key, { n: ids.length }))) return;
+    if (!window.confirm(t("admin.catalog.deleteConfirmFiltered", { n: ids.length }))) return;
     void deleteSongIds(ids);
   }
 
@@ -298,6 +303,12 @@ export function MidiCatalogSection({ authHeader }: Props) {
     startTransition(() => {
       void loadSongs();
     });
+  }, [loadSongs]);
+
+  useEffect(() => {
+    const onCatalogChanged = () => void loadSongs();
+    window.addEventListener("karaplay:catalog-changed", onCatalogChanged);
+    return () => window.removeEventListener("karaplay:catalog-changed", onCatalogChanged);
   }, [loadSongs]);
 
   /** Genere/anno/copertina/artista da iTunes (via backend): precompila i campi ancora vuoti. */
@@ -667,14 +678,16 @@ export function MidiCatalogSection({ authHeader }: Props) {
             >
               {deleteBusy ? t("admin.catalog.deleting") : t("admin.catalog.deleteSelected")}
             </button>
-            <button
-              type="button"
-              disabled={deleteBusy || filteredIds.length === 0}
-              onClick={() => confirmDeleteAll()}
-              className="rounded-lg border border-red-500/40 px-3 py-1.5 text-xs text-red-300/90 hover:bg-red-950/30 disabled:opacity-40"
-            >
-              {catalogQuery.trim() ? t("admin.catalog.deleteFiltered") : t("admin.catalog.deleteAll")}
-            </button>
+            {catalogQuery.trim() && (
+              <button
+                type="button"
+                disabled={deleteBusy || filteredIds.length === 0}
+                onClick={() => confirmDeleteFiltered()}
+                className="rounded-lg border border-red-500/40 px-3 py-1.5 text-xs text-red-300/90 hover:bg-red-950/30 disabled:opacity-40"
+              >
+                {t("admin.catalog.deleteFiltered")}
+              </button>
+            )}
           </div>
         )}
 
@@ -781,6 +794,11 @@ export function MidiCatalogSection({ authHeader }: Props) {
                   </option>
                 ))}
               </select>
+              <span className="text-zinc-500">
+                {t(songs.length === 1 ? "admin.catalog.totalSongsOne" : "admin.catalog.totalSongs", {
+                  n: songs.length,
+                })}
+              </span>
             </label>
             {filteredSongs.length > 0 && (
               <div className="flex flex-wrap items-center gap-2">
@@ -981,9 +999,10 @@ export function MidiCatalogSection({ authHeader }: Props) {
       <MidiBulkImport
         authHeader={authHeader}
         existingFileNames={songs.map((s2) => (s2.fileName ?? "").toLowerCase()).filter(Boolean)}
-        catalogSongs={songs}
-        selectedSongIds={[...selectedIds]}
-        onDone={() => void loadSongs()}
+        onDone={() => {
+          void loadSongs();
+          notifyCatalogChanged();
+        }}
       />
     </section>
   );

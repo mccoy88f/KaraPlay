@@ -78,9 +78,9 @@ export function ProfileTab() {
           <>
             <p className="mt-2 text-sm text-zinc-400">
               {t("profile.nickname")}: <span className="font-medium text-white">{stats.nickname}</span>
-              {stats.emailVerified && stats.email && (
+              {((stats.emailVerified && stats.email) || stats.phone) && (
                 <span className="ml-2 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-xs text-emerald-200">
-                  ✓ {stats.email}
+                  ✓ {stats.email ?? stats.phone}
                 </span>
               )}
             </p>
@@ -109,7 +109,7 @@ export function ProfileTab() {
         {msg && <p className="mt-4 text-sm text-emerald-400">{msg}</p>}
         {err && <p className="mt-4 text-sm text-red-400">{err}</p>}
 
-        {stats && !stats.emailVerified && (
+        {stats && !stats.emailVerified && !stats.phone && (
           <div className="mt-6 rounded-xl border border-zinc-800 bg-zinc-950/60 p-4">
             <p className="text-sm font-medium text-zinc-200">{t("profile.linkEmail")}</p>
             <p className="mt-1 text-xs text-zinc-500">{t("profile.linkEmailHint")}</p>

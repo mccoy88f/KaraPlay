@@ -8,6 +8,7 @@ import { MidiDebugSection } from "../components/admin/MidiDebugSection";
 import { SoundfontAdminSection } from "../components/admin/SoundfontAdminSection";
 import { YoutubeCookiesSection } from "../components/admin/YoutubeCookiesSection";
 import { YoutubeDownloadSection } from "../components/admin/YoutubeDownloadSection";
+import { CatalogToolsSection } from "../components/admin/CatalogToolsSection";
 import { useI18n } from "../i18n/context";
 
 const base = import.meta.env.VITE_API_URL ?? "";
@@ -257,6 +258,8 @@ export function Admin() {
               <p className="text-sm text-zinc-500">{t("admin.techIntro")}</p>
 
               <SoundfontAdminSection authHeader={authHeader} isSuper={isSuper} />
+
+              <CatalogToolsSection authHeader={authHeader} />
 
               <YoutubeDownloadSection authHeader={authHeader} />
 

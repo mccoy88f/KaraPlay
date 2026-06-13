@@ -6,10 +6,13 @@ import { createOtp, verifyOtp } from "../services/otp.service.js";
 import { sendOtpEmail } from "../services/mail.service.js";
 import type { JwtPayload } from "../types/jwt.js";
 import { requireJwt } from "../middleware/jwt.js";
+import { parseJoinContact } from "../lib/joinContact.js";
 
 const joinSchema = z.object({
   nickname: z.string().min(1).max(40),
+  contact: z.string().min(3).max(128),
   eventJoinCode: z.string().min(4).max(32),
+  confirmNicknameChange: z.boolean().optional(),
 });
 
 const requestOtpSchema = z.object({
@@ -56,13 +59,47 @@ function signUserToken(
   return fastify.jwt.sign(payload, { expiresIn: "7d" });
 }
 
+function joinResponse(
+  fastify: FastifyInstance,
+  user: { id: string; nickname: string; email: string | null; phone: string | null },
+  event: {
+    id: string;
+    name: string;
+    joinCode: string;
+    status: string;
+    soundfontBankId: string;
+  },
+  role: "guest" | "user" = "guest"
+) {
+  const token =
+    role === "user"
+      ? signUserToken(fastify, user.id, user.nickname, event.id)
+      : signGuestToken(fastify, user.id, user.nickname, event.id);
+  return {
+    token,
+    user: { id: user.id, nickname: user.nickname, email: user.email, phone: user.phone },
+    event: {
+      id: event.id,
+      name: event.name,
+      joinCode: event.joinCode,
+      status: event.status,
+      soundfontBankId: event.soundfontBankId,
+    },
+  };
+}
+
 export async function registerAuthRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.post("/join", async (request, reply) => {
     const parsed = joinSchema.safeParse(request.body);
     if (!parsed.success) {
       return reply.code(400).send({ error: "Dati non validi", details: parsed.error.flatten() });
     }
-    const { nickname, eventJoinCode } = parsed.data;
+    const { nickname, eventJoinCode, confirmNicknameChange, contact } = parsed.data;
+    const parsedContact = parseJoinContact(contact);
+    if (!parsedContact) {
+      return reply.code(400).send({ error: "Email o telefono non valido" });
+    }
+    const nick = nickname.trim();
     const code = eventJoinCode.trim();
     const event = await prisma.event.findUnique({
       where: { joinCode: code },
@@ -74,23 +111,50 @@ export async function registerAuthRoutes(fastify: FastifyInstance): Promise<void
       return reply.code(403).send({ error: "Serata non accessibile" });
     }
 
+    const existing =
+      parsedContact.kind === "email"
+        ? await prisma.user.findUnique({ where: { email: parsedContact.email } })
+        : await prisma.user.findUnique({ where: { phone: parsedContact.phone } });
     const sessionToken = crypto.randomBytes(24).toString("hex");
+
+    if (existing) {
+      if (existing.nickname !== nick && !confirmNicknameChange) {
+        return reply.send({
+          needsNicknameConfirm: true,
+          storedNickname: existing.nickname,
+          requestedNickname: nick,
+        });
+      }
+
+      const user = await prisma.user.update({
+        where: { id: existing.id },
+        data: {
+          sessionToken,
+          ...(existing.nickname !== nick && confirmNicknameChange ? { nickname: nick } : {}),
+          ...(parsedContact.kind === "email" ? { emailVerified: true } : {}),
+        },
+      });
+
+      return reply.send(joinResponse(fastify, user, event, "user"));
+    }
+
     const user = await prisma.user.create({
-      data: { nickname: nickname.trim(), sessionToken },
+      data:
+        parsedContact.kind === "email"
+          ? {
+              nickname: nick,
+              email: parsedContact.email,
+              emailVerified: true,
+              sessionToken,
+            }
+          : {
+              nickname: nick,
+              phone: parsedContact.phone,
+              sessionToken,
+            },
     });
 
-    const token = signGuestToken(fastify, user.id, user.nickname, event.id);
-    return reply.send({
-      token,
-      user: { id: user.id, nickname: user.nickname },
-      event: {
-        id: event.id,
-        name: event.name,
-        joinCode: event.joinCode,
-        status: event.status,
-        soundfontBankId: event.soundfontBankId,
-      },
-    });
+    return reply.send(joinResponse(fastify, user, event, "user"));
   });
 
   fastify.post("/request-otp", async (request, reply) => {
