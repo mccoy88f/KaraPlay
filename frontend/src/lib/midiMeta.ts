@@ -71,13 +71,38 @@ function collectTextMeta(buf: ArrayBuffer): { texts: string[]; trackNames: strin
 
 function clean(s: string): string {
   return s
+    .replace(/[\x00-\x08\x0e-\x1f]/g, "")
     .replace(/^["'«\s]+|["'»\s]+$/g, "")
     .replace(/\s+/g, " ")
     .trim();
 }
 
+/** Testo copyright, URL o boilerplate: non è un titolo/artista. */
+function isJunkMetaText(s: string): boolean {
+  const t = clean(s);
+  if (!t || t.length < 2) return true;
+  const lower = t.toLowerCase();
+  if (/^midi$/i.test(t)) return true;
+  if (/^www\./i.test(t) || /^https?:\/\//i.test(t)) return true;
+  if (/^©|\(c\)|copyright|all rights reserved|rights reserved/i.test(t)) return true;
+  if (/^all\s+rights/i.test(lower) || /rights\s+reserved/i.test(lower)) return true;
+  if (/^untitled(\s+track|\s*\d*)?$/i.test(lower)) return true;
+  if (/^(senza\s+titolo|no\s+title|unknown\s+title)$/i.test(lower)) return true;
+  if (/^[\s.\-;:\u0000]+$/i.test(t)) return true;
+  if (/^[\x00-\x08\x0e-\x1f]+$/.test(t)) return true;
+  return false;
+}
+
 function looksLikeTitle(s: string): boolean {
-  return s.length >= 2 && s.length <= 80 && !/^@/.test(s);
+  return s.length >= 2 && s.length <= 80 && !/^@/.test(s) && !isJunkMetaText(s);
+}
+
+/** Rimuove parentesi esterne tipiche del karaoke: «(Artista)» → «Artista». */
+function normalizeArtist(s: string): string {
+  let a = clean(s);
+  const wrapped = /^\(([^()]+)\)$/.exec(a);
+  if (wrapped) a = clean(wrapped[1]);
+  return a;
 }
 
 function humanizeFileSegment(s: string): string {
@@ -91,14 +116,14 @@ function parseFileNameMeta(fileName?: string): { title: string; artist: string }
   const double = /^(.+?)--(.+)$/.exec(stem);
   if (double) {
     return {
-      artist: humanizeFileSegment(double[1]),
+      artist: normalizeArtist(humanizeFileSegment(double[1])),
       title: humanizeFileSegment(double[2]),
     };
   }
   const spaced = stem.replace(/_+/g, " ");
   const single = /^(.{2,50}?)\s[-–]\s(.{2,80})$/.exec(spaced);
   if (single) {
-    return { artist: clean(single[1]), title: clean(single[2]) };
+    return { artist: normalizeArtist(clean(single[1])), title: clean(single[2]) };
   }
   return { title: humanizeFileSegment(stem), artist: "" };
 }
@@ -108,7 +133,11 @@ function extractArtistFromLyricLines(lines: { text: string }[]): string {
   for (const l of lines.slice(0, 25)) {
     const text = clean(l.text);
     const m = /^\(([^()]{2,60})\)$/.exec(text);
-    if (m && looksLikeTitle(m[1])) return clean(m[1]);
+    if (m && looksLikeTitle(m[1])) return normalizeArtist(m[1]);
+    if (text.startsWith("(") && text.endsWith(")")) {
+      const inner = normalizeArtist(text);
+      if (inner && looksLikeTitle(inner) && !isJunkMetaText(inner)) return inner;
+    }
   }
   return "";
 }
@@ -139,7 +168,7 @@ export function extractMidiMeta(buf: ArrayBuffer, fileName?: string): MidiMeta {
   // tag karaoke @T: il primo è il titolo, il secondo (se c'è) l'artista
   const tTags = texts.filter((t) => /^@T/i.test(t)).map((t) => clean(t.slice(2)));
   if (tTags[0] && looksLikeTitle(tTags[0])) title = tTags[0];
-  if (tTags[1] && looksLikeTitle(tTags[1])) artist = tTags[1];
+  if (tTags[1] && looksLikeTitle(tTags[1])) artist = normalizeArtist(tTags[1]);
 
   // nome della prima traccia (tonejs lo espone come midi.name)
   if (!title) {
@@ -154,21 +183,23 @@ export function extractMidiMeta(buf: ArrayBuffer, fileName?: string): MidiMeta {
       const m = /^(.{2,60}?)\s[-–]\s(.{2,40})$/.exec(name);
       if (m && !artist) {
         title = clean(m[1]);
-        artist = clean(m[2]);
+        artist = normalizeArtist(m[2]);
       } else {
         title = name;
       }
     }
   }
 
-  // prime righe del karaoke: spesso «"TITOLO"» e «(ARTISTA)» (anche oltre la terza riga)
+  // prime righe del karaoke: spesso «"TITOLO"» e «(ARTISTA)» (salta copyright e URL)
   if (!title || !artist) {
     try {
       const lines = extractMidiLyrics(buf, new Midi(buf));
       if (!title) {
-        for (const l of lines.slice(0, 8)) {
+        for (const l of lines.slice(0, 20)) {
           const text = clean(l.text);
-          if (text && looksLikeTitle(text) && !/^\(.+\)$/.test(text)) {
+          if (!text || isJunkMetaText(text)) continue;
+          if (/^\(.+\)$/.test(text)) continue;
+          if (looksLikeTitle(text)) {
             title = text;
             break;
           }
@@ -181,8 +212,12 @@ export function extractMidiMeta(buf: ArrayBuffer, fileName?: string): MidiMeta {
   }
 
   const fromFile = parseFileNameMeta(fileName);
-  if (!artist && fromFile.artist) artist = fromFile.artist;
-  if (!title && fromFile.title) title = fromFile.title;
+  if (title && isJunkMetaText(title)) title = "";
+  if (artist && isJunkMetaText(artist)) artist = "";
+  if (!artist && fromFile.artist && looksLikeTitle(fromFile.artist)) artist = fromFile.artist;
+  if (!title && fromFile.title && looksLikeTitle(fromFile.title)) title = fromFile.title;
+
+  if (artist) artist = normalizeArtist(artist);
 
   return { title, artist, year };
 }

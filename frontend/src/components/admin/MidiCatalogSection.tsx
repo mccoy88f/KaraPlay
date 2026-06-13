@@ -1,7 +1,8 @@
-import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { extractMidiMeta } from "../../lib/midiMeta";
 import { useI18n } from "../../i18n/context";
 import { MidiBulkImport } from "./MidiBulkImport";
+import { SongCoverThumb } from "../SongCoverThumb";
 
 const base = import.meta.env.VITE_API_URL ?? "";
 
@@ -23,6 +24,11 @@ export type SongDto = {
 type Props = {
   authHeader: () => Record<string, string>;
 };
+
+type CatalogView = "list" | "artist";
+type PageSize = 25 | 50 | 100;
+
+const PAGE_SIZES: PageSize[] = [25, 50, 100];
 
 function CoverPreview({ url }: { url: string }) {
   if (!url.trim()) return null;
@@ -61,6 +67,10 @@ export function MidiCatalogSection({ authHeader }: Props) {
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [catalogQuery, setCatalogQuery] = useState("");
+  const [catalogView, setCatalogView] = useState<CatalogView>("list");
+  const [pageSize, setPageSize] = useState<PageSize>(25);
+  const [page, setPage] = useState(1);
+  const [expandedArtists, setExpandedArtists] = useState<Set<string>>(() => new Set());
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [deleteBusy, setDeleteBusy] = useState(false);
   /** Ultimi valori precompilati dal file: si sovrascrivono solo se l'utente non li ha toccati. */
@@ -83,9 +93,58 @@ export function MidiCatalogSection({ authHeader }: Props) {
   }, [songs, catalogQuery]);
 
   const filteredIds = useMemo(() => filteredSongs.map((s) => s.id), [filteredSongs]);
-  const allFilteredSelected =
-    filteredIds.length > 0 && filteredIds.every((id) => selectedIds.has(id));
+
+  const unknownArtistLabel = t("admin.catalog.unknownArtist");
+
+  const artistGroups = useMemo(() => {
+    const map = new Map<string, SongDto[]>();
+    for (const s of filteredSongs) {
+      const key = s.artist.trim() || unknownArtistLabel;
+      const list = map.get(key) ?? [];
+      list.push(s);
+      map.set(key, list);
+    }
+    return [...map.entries()]
+      .sort(([a], [b]) => a.localeCompare(b, undefined, { sensitivity: "base" }))
+      .map(([artist, groupSongs]) => ({
+        artist,
+        songs: groupSongs.sort((a, b) =>
+          a.title.localeCompare(b.title, undefined, { sensitivity: "base" })
+        ),
+      }));
+  }, [filteredSongs, unknownArtistLabel]);
+
+  const totalPages = useMemo(() => {
+    const count = catalogView === "list" ? filteredSongs.length : artistGroups.length;
+    return Math.max(1, Math.ceil(count / pageSize));
+  }, [catalogView, filteredSongs.length, artistGroups.length, pageSize]);
+
+  const paginatedSongs = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return filteredSongs.slice(start, start + pageSize);
+  }, [filteredSongs, page, pageSize]);
+
+  const paginatedGroups = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return artistGroups.slice(start, start + pageSize);
+  }, [artistGroups, page, pageSize]);
+
+  const pageSongIds = useMemo(() => {
+    if (catalogView === "list") return paginatedSongs.map((s) => s.id);
+    return paginatedGroups.flatMap((g) => g.songs.map((s) => s.id));
+  }, [catalogView, paginatedSongs, paginatedGroups]);
+
+  const allPageSelected = pageSongIds.length > 0 && pageSongIds.every((id) => selectedIds.has(id));
+  const somePageSelected = pageSongIds.some((id) => selectedIds.has(id));
   const someFilteredSelected = filteredIds.some((id) => selectedIds.has(id));
+
+  useEffect(() => {
+    setPage(1);
+  }, [catalogQuery, pageSize, catalogView]);
+
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
 
   function toggleSelect(id: string) {
     setSelectedIds((prev) => {
@@ -96,13 +155,36 @@ export function MidiCatalogSection({ authHeader }: Props) {
     });
   }
 
-  function toggleSelectAllFiltered() {
+  function toggleSelectAllPage() {
     setSelectedIds((prev) => {
       const next = new Set(prev);
-      if (allFilteredSelected) {
-        for (const id of filteredIds) next.delete(id);
+      if (allPageSelected) {
+        for (const id of pageSongIds) next.delete(id);
       } else {
-        for (const id of filteredIds) next.add(id);
+        for (const id of pageSongIds) next.add(id);
+      }
+      return next;
+    });
+  }
+
+  function toggleArtistExpand(artist: string) {
+    setExpandedArtists((prev) => {
+      const next = new Set(prev);
+      if (next.has(artist)) next.delete(artist);
+      else next.add(artist);
+      return next;
+    });
+  }
+
+  function toggleSelectArtistGroup(groupSongs: SongDto[]) {
+    const ids = groupSongs.map((s) => s.id);
+    const all = ids.length > 0 && ids.every((id) => selectedIds.has(id));
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (all) {
+        for (const id of ids) next.delete(id);
+      } else {
+        for (const id of ids) next.add(id);
       }
       return next;
     });
@@ -461,12 +543,333 @@ export function MidiCatalogSection({ authHeader }: Props) {
     await loadSongs();
   }
 
+  function renderSongRow(s: SongDto, opts?: { nested?: boolean }) {
+    return (
+      <tr
+        key={s.id}
+        ref={(el) => {
+          if (el) rowRefs.current.set(s.id, el);
+          else rowRefs.current.delete(s.id);
+        }}
+        className={`border-b border-zinc-800/80 ${editing?.id === s.id ? "bg-fuchsia-500/10" : ""} ${opts?.nested ? "bg-zinc-950/40" : ""}`}
+      >
+        <td className={`py-2 pr-2 ${opts?.nested ? "pl-8" : ""}`}>
+          <input
+            type="checkbox"
+            checked={selectedIds.has(s.id)}
+            onChange={() => toggleSelect(s.id)}
+            aria-label={s.title}
+            className="accent-fuchsia-500"
+          />
+        </td>
+        <td className="py-2 pr-3">
+          <SongCoverThumb url={s.coverUrl} size="xs" />
+        </td>
+        <td className={`py-2 pr-4 font-medium text-white ${opts?.nested ? "pl-2" : ""}`}>{s.title}</td>
+        <td className="py-2 pr-4">{catalogView === "artist" && opts?.nested ? "—" : s.artist}</td>
+        <td className="py-2 pr-4">{s.year ?? "—"}</td>
+        <td className="py-2 pr-4">{s.genre ?? "—"}</td>
+        <td
+          className="max-w-[14rem] truncate py-2 pr-4 font-mono text-xs text-zinc-500"
+          title={s.fileName ?? undefined}
+        >
+          {s.fileName ?? "—"}
+        </td>
+        <td className="py-2 pr-4">{s.lrcPath ? t("admin.catalog.lrcYes") : "—"}</td>
+        <td className="py-2">
+          <div className="flex gap-1">
+            <button
+              type="button"
+              title={t("admin.catalog.editTitle")}
+              onClick={() => startEdit(s)}
+              className="rounded border border-zinc-700 px-2 py-1 text-xs text-zinc-300 hover:bg-zinc-800"
+            >
+              ✏️
+            </button>
+            <button
+              type="button"
+              title={t("admin.catalog.deleteOne")}
+              disabled={deleteBusy}
+              onClick={() => confirmDeleteOne(s)}
+              className="rounded border border-red-500/40 px-2 py-1 text-xs text-red-200 hover:bg-red-950/40 disabled:opacity-40"
+            >
+              🗑
+            </button>
+          </div>
+        </td>
+      </tr>
+    );
+  }
+
   return (
     <section className="kg-card mt-8 p-6 md:p-8">
       <h2 className="font-display text-lg font-semibold text-white">{t("admin.catalog.title")}</h2>
       <p className="mt-2 text-sm text-zinc-400">{t("admin.catalog.intro")}</p>
 
-      <form onSubmit={(e) => void upload(e)} className="mt-6 flex flex-col gap-4">
+      {msg && <p className="mt-4 text-sm text-emerald-400">{msg}</p>}
+      {err && <p className="mt-4 text-sm text-red-400">{err}</p>}
+
+      <div className="mt-6">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h3 className="font-display text-base font-semibold text-white">{t("admin.catalog.searchTitle")}</h3>
+            <p className="mt-1 text-xs text-zinc-500">
+              {songs.length === 1
+                ? t("admin.catalog.songCountOne")
+                : t("admin.catalog.songCount", { n: songs.length })}
+              {catalogQuery.trim()
+                ? ` · ${t("admin.catalog.results", { n: filteredSongs.length })}`
+                : ""}
+              {selectedIds.size > 0 ? ` · ${t("admin.catalog.selected", { n: selectedIds.size })}` : ""}
+            </p>
+          </div>
+          <label className="flex min-w-[min(100%,20rem)] flex-1 flex-col gap-1 text-sm sm:max-w-md">
+            <span className="sr-only">{t("admin.catalog.searchTitle")}</span>
+            <input
+              className="kg-input"
+              value={catalogQuery}
+              onChange={(e) => setCatalogQuery(e.target.value)}
+              placeholder={t("admin.catalog.searchPlaceholder")}
+            />
+          </label>
+        </div>
+
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <div className="inline-flex rounded-lg border border-zinc-700 p-0.5">
+            <button
+              type="button"
+              onClick={() => setCatalogView("list")}
+              className={`rounded-md px-3 py-1.5 text-xs font-medium ${
+                catalogView === "list" ? "bg-fuchsia-600 text-white" : "text-zinc-400 hover:text-white"
+              }`}
+            >
+              {t("admin.catalog.viewList")}
+            </button>
+            <button
+              type="button"
+              onClick={() => setCatalogView("artist")}
+              className={`rounded-md px-3 py-1.5 text-xs font-medium ${
+                catalogView === "artist" ? "bg-fuchsia-600 text-white" : "text-zinc-400 hover:text-white"
+              }`}
+            >
+              {t("admin.catalog.viewArtist")}
+            </button>
+          </div>
+          <label className="flex items-center gap-2 text-xs text-zinc-400">
+            <span>{t("admin.catalog.pageSizeLabel")}</span>
+            <select
+              className="kg-input py-1 text-xs"
+              value={pageSize}
+              onChange={(e) => setPageSize(Number(e.target.value) as PageSize)}
+            >
+              {PAGE_SIZES.map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </select>
+          </label>
+          {filteredSongs.length > 0 && (
+            <div className="flex items-center gap-2 text-xs text-zinc-400">
+              <button
+                type="button"
+                disabled={page <= 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                className="rounded border border-zinc-700 px-2 py-1 hover:bg-zinc-800 disabled:opacity-40"
+              >
+                {t("admin.catalog.prevPage")}
+              </button>
+              <span>{t("admin.catalog.pageOf", { page, total: totalPages })}</span>
+              <button
+                type="button"
+                disabled={page >= totalPages}
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                className="rounded border border-zinc-700 px-2 py-1 hover:bg-zinc-800 disabled:opacity-40"
+              >
+                {t("admin.catalog.nextPage")}
+              </button>
+            </div>
+          )}
+        </div>
+
+        {songs.length > 0 && (
+          <div className="mt-3 flex flex-wrap justify-end gap-2">
+            <button
+              type="button"
+              disabled={deleteBusy || !someFilteredSelected}
+              onClick={() => confirmDeleteSelected()}
+              className="rounded-lg border border-red-500/50 px-3 py-1.5 text-xs font-medium text-red-200 hover:bg-red-950/40 disabled:opacity-40"
+            >
+              {deleteBusy ? t("admin.catalog.deleting") : t("admin.catalog.deleteSelected")}
+            </button>
+            <button
+              type="button"
+              disabled={deleteBusy || filteredIds.length === 0}
+              onClick={() => confirmDeleteAll()}
+              className="rounded-lg border border-red-500/40 px-3 py-1.5 text-xs text-red-300/90 hover:bg-red-950/30 disabled:opacity-40"
+            >
+              {catalogQuery.trim() ? t("admin.catalog.deleteFiltered") : t("admin.catalog.deleteAll")}
+            </button>
+          </div>
+        )}
+
+        <div className="mt-4 overflow-x-auto">
+          <table className="w-full text-left text-sm text-zinc-300">
+            <thead>
+              <tr className="border-b border-zinc-800 text-zinc-500">
+                <th className="w-10 py-2 pr-2">
+                  <input
+                    type="checkbox"
+                    checked={allPageSelected}
+                    ref={(el) => {
+                      if (el) el.indeterminate = somePageSelected && !allPageSelected;
+                    }}
+                    onChange={toggleSelectAllPage}
+                    disabled={pageSongIds.length === 0}
+                    aria-label={t("admin.catalog.selectAllPage")}
+                    className="accent-fuchsia-500"
+                  />
+                </th>
+                <th className="w-14 py-2 pr-3">{t("admin.catalog.colCover")}</th>
+                <th className="py-2 pr-4">{t("admin.catalog.colTitle")}</th>
+                <th className="py-2 pr-4">{t("admin.catalog.colArtist")}</th>
+                <th className="py-2 pr-4">{t("admin.catalog.colYear")}</th>
+                <th className="py-2 pr-4">{t("admin.catalog.colGenre")}</th>
+                <th className="py-2 pr-4">{t("admin.catalog.colFile")}</th>
+                <th className="py-2 pr-4">{t("admin.catalog.colLrc")}</th>
+                <th className="py-2"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {catalogView === "list" &&
+                paginatedSongs.map((s) => renderSongRow(s))}
+              {catalogView === "artist" &&
+                paginatedGroups.map((group) => {
+                  const expanded = expandedArtists.has(group.artist);
+                  const groupAllSelected =
+                    group.songs.length > 0 && group.songs.every((s) => selectedIds.has(s.id));
+                  const groupSomeSelected = group.songs.some((s) => selectedIds.has(s.id));
+                  return (
+                    <Fragment key={`artist-${group.artist}`}>
+                      <tr key={`artist-${group.artist}`} className="border-b border-zinc-800 bg-zinc-900/60">
+                        <td className="py-2 pr-2">
+                          <input
+                            type="checkbox"
+                            checked={groupAllSelected}
+                            ref={(el) => {
+                              if (el) el.indeterminate = groupSomeSelected && !groupAllSelected;
+                            }}
+                            onChange={() => toggleSelectArtistGroup(group.songs)}
+                            aria-label={group.artist}
+                            className="accent-fuchsia-500"
+                          />
+                        </td>
+                        <td colSpan={8} className="py-2 pr-4">
+                          <button
+                            type="button"
+                            onClick={() => toggleArtistExpand(group.artist)}
+                            className="flex w-full items-center gap-2 text-left font-medium text-white hover:text-fuchsia-200"
+                            aria-expanded={expanded}
+                          >
+                            <span className="text-zinc-500">{expanded ? "▼" : "▶"}</span>
+                            <span>{group.artist}</span>
+                            <span className="text-xs font-normal text-zinc-500">
+                              {t("admin.catalog.songsInGroup", { n: group.songs.length })}
+                            </span>
+                          </button>
+                        </td>
+                      </tr>
+                      {expanded && group.songs.map((s) => renderSongRow(s, { nested: true }))}
+                    </Fragment>
+                  );
+                })}
+              {songs.length === 0 && (
+                <tr>
+                  <td colSpan={9} className="py-6 text-center text-zinc-500">
+                    {t("admin.catalog.empty")}
+                  </td>
+                </tr>
+              )}
+              {songs.length > 0 && filteredSongs.length === 0 && (
+                <tr>
+                  <td colSpan={9} className="py-6 text-center text-zinc-500">
+                    {t("admin.catalog.noResults", { q: catalogQuery.trim() })}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {editing && (
+        <form
+          ref={editPanelRef}
+          onSubmit={(e) => void saveEdit(e)}
+          className="mt-6 scroll-mt-6 rounded-xl border border-fuchsia-500/30 bg-zinc-950/60 p-4"
+        >
+          <p className="text-sm font-medium text-fuchsia-200">{t("admin.catalog.editPanel", { title: editing.title })}</p>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <label className="flex flex-col gap-1 text-sm">
+              <span className="text-zinc-400">{t("admin.catalog.titleLabel")}</span>
+              <input className="kg-input" value={edit.title} onChange={(e) => setEdit({ ...edit, title: e.target.value })} required />
+            </label>
+            <label className="flex flex-col gap-1 text-sm">
+              <span className="text-zinc-400">{t("admin.catalog.artistLabel")}</span>
+              <input className="kg-input" value={edit.artist} onChange={(e) => setEdit({ ...edit, artist: e.target.value })} required />
+            </label>
+            <label className="flex flex-col gap-1 text-sm">
+              <span className="text-zinc-400">{t("admin.catalog.colYear")}</span>
+              <input className="kg-input" value={edit.year} onChange={(e) => setEdit({ ...edit, year: e.target.value })} inputMode="numeric" maxLength={4} />
+            </label>
+            <label className="flex flex-col gap-1 text-sm">
+              <span className="text-zinc-400">{t("admin.catalog.colGenre")}</span>
+              <input className="kg-input" value={edit.genre} onChange={(e) => setEdit({ ...edit, genre: e.target.value })} />
+            </label>
+            <label className="flex flex-col gap-1 text-sm">
+              <span className="text-zinc-400">{t("admin.catalog.editLanguageLabel")}</span>
+              <input className="kg-input" value={edit.language} onChange={(e) => setEdit({ ...edit, language: e.target.value })} placeholder={t("admin.catalog.languagePlaceholder")} />
+            </label>
+            <label className="flex flex-col gap-1 text-sm sm:col-span-2">
+              <span className="text-zinc-400">{t("admin.catalog.editCoverLabel")}</span>
+              <div className="flex flex-wrap items-start gap-3">
+                <input
+                  className="kg-input min-w-0 flex-1 font-mono text-xs"
+                  value={edit.coverUrl}
+                  onChange={(e) => setEdit({ ...edit, coverUrl: e.target.value })}
+                  placeholder={t("admin.catalog.editCoverPlaceholder")}
+                />
+                <CoverPreview url={edit.coverUrl} />
+              </div>
+            </label>
+          </div>
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              disabled={editLookupBusy || !edit.title.trim()}
+              onClick={() => void retrieveEditMeta()}
+              className="rounded-lg border border-cyan-500/40 bg-cyan-500/10 px-4 py-2 text-sm font-medium text-cyan-100 hover:bg-cyan-500/20 disabled:opacity-40"
+            >
+              {editLookupBusy ? t("admin.catalog.retrieving") : t("admin.catalog.retrieveMeta")}
+            </button>
+            <p className="text-xs text-zinc-500">{t("admin.catalog.retrieveHint")}</p>
+          </div>
+          <div className="mt-4 flex gap-2">
+            <button type="submit" disabled={editBusy || !edit.title.trim() || !edit.artist.trim()} className="rounded-lg bg-fuchsia-600 px-4 py-2 text-sm font-semibold text-white hover:bg-fuchsia-500 disabled:opacity-40">
+              {editBusy ? t("admin.catalog.saving") : t("admin.catalog.saveEdit")}
+            </button>
+            <button type="button" onClick={cancelEdit} className="rounded-lg border border-zinc-700 px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-800">
+              {t("admin.catalog.cancel")}
+            </button>
+          </div>
+        </form>
+      )}
+
+      <form
+        onSubmit={(e) => void upload(e)}
+        className="mt-8 flex flex-col gap-4 border-t border-zinc-800 pt-8"
+      >
+        <h3 className="font-display text-base font-semibold text-white">{t("admin.catalog.uploadTitle")}</h3>
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="flex flex-col gap-1 text-sm">
             <span className="text-zinc-400">{t("admin.catalog.titleLabel")}</span>
@@ -568,216 +971,11 @@ export function MidiCatalogSection({ authHeader }: Props) {
         </button>
       </form>
 
-      {msg && <p className="mt-4 text-sm text-emerald-400">{msg}</p>}
-      {err && <p className="mt-4 text-sm text-red-400">{err}</p>}
-
-      <div className="mt-8">
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <h3 className="font-display text-base font-semibold text-white">{t("admin.catalog.searchTitle")}</h3>
-            <p className="mt-1 text-xs text-zinc-500">
-              {songs.length === 1
-                ? t("admin.catalog.songCountOne")
-                : t("admin.catalog.songCount", { n: songs.length })}
-              {catalogQuery.trim()
-                ? ` · ${t("admin.catalog.results", { n: filteredSongs.length })}`
-                : ""}
-              {selectedIds.size > 0 ? ` · ${t("admin.catalog.selected", { n: selectedIds.size })}` : ""}
-            </p>
-          </div>
-          <label className="flex min-w-[min(100%,20rem)] flex-1 flex-col gap-1 text-sm sm:max-w-md">
-            <span className="sr-only">{t("admin.catalog.searchTitle")}</span>
-            <input
-              className="kg-input"
-              value={catalogQuery}
-              onChange={(e) => setCatalogQuery(e.target.value)}
-              placeholder={t("admin.catalog.searchPlaceholder")}
-            />
-          </label>
-        </div>
-
-        {songs.length > 0 && (
-          <div className="mt-3 flex flex-wrap gap-2">
-            <button
-              type="button"
-              disabled={deleteBusy || !someFilteredSelected}
-              onClick={() => confirmDeleteSelected()}
-              className="rounded-lg border border-red-500/50 px-3 py-1.5 text-xs font-medium text-red-200 hover:bg-red-950/40 disabled:opacity-40"
-            >
-              {deleteBusy ? t("admin.catalog.deleting") : t("admin.catalog.deleteSelected")}
-            </button>
-            <button
-              type="button"
-              disabled={deleteBusy || filteredIds.length === 0}
-              onClick={() => confirmDeleteAll()}
-              className="rounded-lg border border-red-500/40 px-3 py-1.5 text-xs text-red-300/90 hover:bg-red-950/30 disabled:opacity-40"
-            >
-              {catalogQuery.trim() ? t("admin.catalog.deleteFiltered") : t("admin.catalog.deleteAll")}
-            </button>
-          </div>
-        )}
-
-        <div className="mt-4 overflow-x-auto">
-          <table className="w-full text-left text-sm text-zinc-300">
-            <thead>
-              <tr className="border-b border-zinc-800 text-zinc-500">
-                <th className="w-10 py-2 pr-2">
-                  <input
-                    type="checkbox"
-                    checked={allFilteredSelected}
-                    ref={(el) => {
-                      if (el) el.indeterminate = someFilteredSelected && !allFilteredSelected;
-                    }}
-                    onChange={toggleSelectAllFiltered}
-                    disabled={filteredSongs.length === 0}
-                    aria-label={t("admin.catalog.selectAll")}
-                    className="accent-fuchsia-500"
-                  />
-                </th>
-                <th className="py-2 pr-4">{t("admin.catalog.colTitle")}</th>
-                <th className="py-2 pr-4">{t("admin.catalog.colArtist")}</th>
-                <th className="py-2 pr-4">{t("admin.catalog.colYear")}</th>
-                <th className="py-2 pr-4">{t("admin.catalog.colGenre")}</th>
-                <th className="py-2 pr-4">{t("admin.catalog.colFile")}</th>
-                <th className="py-2 pr-4">{t("admin.catalog.colLrc")}</th>
-                <th className="py-2"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredSongs.map((s) => (
-                <tr
-                  key={s.id}
-                  ref={(el) => {
-                    if (el) rowRefs.current.set(s.id, el);
-                    else rowRefs.current.delete(s.id);
-                  }}
-                  className={`border-b border-zinc-800/80 ${editing?.id === s.id ? "bg-fuchsia-500/10" : ""}`}
-                >
-                  <td className="py-2 pr-2">
-                    <input
-                      type="checkbox"
-                      checked={selectedIds.has(s.id)}
-                      onChange={() => toggleSelect(s.id)}
-                      aria-label={s.title}
-                      className="accent-fuchsia-500"
-                    />
-                  </td>
-                  <td className="py-2 pr-4 font-medium text-white">{s.title}</td>
-                  <td className="py-2 pr-4">{s.artist}</td>
-                  <td className="py-2 pr-4">{s.year ?? "—"}</td>
-                  <td className="py-2 pr-4">{s.genre ?? "—"}</td>
-                  <td className="max-w-[14rem] truncate py-2 pr-4 font-mono text-xs text-zinc-500" title={s.fileName ?? undefined}>
-                    {s.fileName ?? "—"}
-                  </td>
-                  <td className="py-2 pr-4">{s.lrcPath ? t("admin.catalog.lrcYes") : "—"}</td>
-                  <td className="py-2">
-                    <div className="flex gap-1">
-                      <button
-                        type="button"
-                        title={t("admin.catalog.editTitle")}
-                        onClick={() => startEdit(s)}
-                        className="rounded border border-zinc-700 px-2 py-1 text-xs text-zinc-300 hover:bg-zinc-800"
-                      >
-                        ✏️
-                      </button>
-                      <button
-                        type="button"
-                        title={t("admin.catalog.deleteOne")}
-                        disabled={deleteBusy}
-                        onClick={() => confirmDeleteOne(s)}
-                        className="rounded border border-red-500/40 px-2 py-1 text-xs text-red-200 hover:bg-red-950/40 disabled:opacity-40"
-                      >
-                        🗑
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-              {songs.length === 0 && (
-                <tr>
-                  <td colSpan={8} className="py-6 text-center text-zinc-500">
-                    {t("admin.catalog.empty")}
-                  </td>
-                </tr>
-              )}
-              {songs.length > 0 && filteredSongs.length === 0 && (
-                <tr>
-                  <td colSpan={8} className="py-6 text-center text-zinc-500">
-                    {t("admin.catalog.noResults", { q: catalogQuery.trim() })}
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {editing && (
-        <form
-          ref={editPanelRef}
-          onSubmit={(e) => void saveEdit(e)}
-          className="mt-6 scroll-mt-6 rounded-xl border border-fuchsia-500/30 bg-zinc-950/60 p-4"
-        >
-          <p className="text-sm font-medium text-fuchsia-200">{t("admin.catalog.editPanel", { title: editing.title })}</p>
-          <div className="mt-3 grid gap-3 sm:grid-cols-2">
-            <label className="flex flex-col gap-1 text-sm">
-              <span className="text-zinc-400">{t("admin.catalog.titleLabel")}</span>
-              <input className="kg-input" value={edit.title} onChange={(e) => setEdit({ ...edit, title: e.target.value })} required />
-            </label>
-            <label className="flex flex-col gap-1 text-sm">
-              <span className="text-zinc-400">{t("admin.catalog.artistLabel")}</span>
-              <input className="kg-input" value={edit.artist} onChange={(e) => setEdit({ ...edit, artist: e.target.value })} required />
-            </label>
-            <label className="flex flex-col gap-1 text-sm">
-              <span className="text-zinc-400">{t("admin.catalog.colYear")}</span>
-              <input className="kg-input" value={edit.year} onChange={(e) => setEdit({ ...edit, year: e.target.value })} inputMode="numeric" maxLength={4} />
-            </label>
-            <label className="flex flex-col gap-1 text-sm">
-              <span className="text-zinc-400">{t("admin.catalog.colGenre")}</span>
-              <input className="kg-input" value={edit.genre} onChange={(e) => setEdit({ ...edit, genre: e.target.value })} />
-            </label>
-            <label className="flex flex-col gap-1 text-sm">
-              <span className="text-zinc-400">{t("admin.catalog.editLanguageLabel")}</span>
-              <input className="kg-input" value={edit.language} onChange={(e) => setEdit({ ...edit, language: e.target.value })} placeholder={t("admin.catalog.languagePlaceholder")} />
-            </label>
-            <label className="flex flex-col gap-1 text-sm sm:col-span-2">
-              <span className="text-zinc-400">{t("admin.catalog.editCoverLabel")}</span>
-              <div className="flex flex-wrap items-start gap-3">
-                <input
-                  className="kg-input min-w-0 flex-1 font-mono text-xs"
-                  value={edit.coverUrl}
-                  onChange={(e) => setEdit({ ...edit, coverUrl: e.target.value })}
-                  placeholder={t("admin.catalog.editCoverPlaceholder")}
-                />
-                <CoverPreview url={edit.coverUrl} />
-              </div>
-            </label>
-          </div>
-          <div className="mt-4 flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              disabled={editLookupBusy || !edit.title.trim()}
-              onClick={() => void retrieveEditMeta()}
-              className="rounded-lg border border-cyan-500/40 bg-cyan-500/10 px-4 py-2 text-sm font-medium text-cyan-100 hover:bg-cyan-500/20 disabled:opacity-40"
-            >
-              {editLookupBusy ? t("admin.catalog.retrieving") : t("admin.catalog.retrieveMeta")}
-            </button>
-            <p className="text-xs text-zinc-500">{t("admin.catalog.retrieveHint")}</p>
-          </div>
-          <div className="mt-4 flex gap-2">
-            <button type="submit" disabled={editBusy || !edit.title.trim() || !edit.artist.trim()} className="rounded-lg bg-fuchsia-600 px-4 py-2 text-sm font-semibold text-white hover:bg-fuchsia-500 disabled:opacity-40">
-              {editBusy ? t("admin.catalog.saving") : t("admin.catalog.saveEdit")}
-            </button>
-            <button type="button" onClick={cancelEdit} className="rounded-lg border border-zinc-700 px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-800">
-              {t("admin.catalog.cancel")}
-            </button>
-          </div>
-        </form>
-      )}
-
       <MidiBulkImport
         authHeader={authHeader}
         existingFileNames={songs.map((s2) => (s2.fileName ?? "").toLowerCase()).filter(Boolean)}
+        catalogSongs={songs}
+        selectedSongIds={[...selectedIds]}
         onDone={() => void loadSongs()}
       />
     </section>
