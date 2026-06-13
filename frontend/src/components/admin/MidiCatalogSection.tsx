@@ -655,41 +655,6 @@ export function MidiCatalogSection({ authHeader }: Props) {
               {t("admin.catalog.viewArtist")}
             </button>
           </div>
-          <label className="flex items-center gap-2 text-xs text-zinc-400">
-            <span>{t("admin.catalog.pageSizeLabel")}</span>
-            <select
-              className="kg-input py-1 text-xs"
-              value={pageSize}
-              onChange={(e) => setPageSize(Number(e.target.value) as PageSize)}
-            >
-              {PAGE_SIZES.map((n) => (
-                <option key={n} value={n}>
-                  {n}
-                </option>
-              ))}
-            </select>
-          </label>
-          {filteredSongs.length > 0 && (
-            <div className="flex items-center gap-2 text-xs text-zinc-400">
-              <button
-                type="button"
-                disabled={page <= 1}
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-                className="rounded border border-zinc-700 px-2 py-1 hover:bg-zinc-800 disabled:opacity-40"
-              >
-                {t("admin.catalog.prevPage")}
-              </button>
-              <span>{t("admin.catalog.pageOf", { page, total: totalPages })}</span>
-              <button
-                type="button"
-                disabled={page >= totalPages}
-                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                className="rounded border border-zinc-700 px-2 py-1 hover:bg-zinc-800 disabled:opacity-40"
-              >
-                {t("admin.catalog.nextPage")}
-              </button>
-            </div>
-          )}
         </div>
 
         {songs.length > 0 && (
@@ -800,6 +765,48 @@ export function MidiCatalogSection({ authHeader }: Props) {
             </tbody>
           </table>
         </div>
+
+        {songs.length > 0 && (
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-zinc-800 pt-4">
+            <label className="flex items-center gap-2 text-sm text-zinc-400">
+              <span>{t("admin.catalog.pageSizeLabel")}</span>
+              <select
+                className="kg-input w-auto min-w-[5rem] py-1.5 text-sm"
+                value={pageSize}
+                onChange={(e) => setPageSize(Number(e.target.value) as PageSize)}
+              >
+                {PAGE_SIZES.map((n) => (
+                  <option key={n} value={n}>
+                    {n}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {filteredSongs.length > 0 && (
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  disabled={page <= 1}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  className="rounded-lg border border-zinc-700 px-3 py-1.5 text-xs font-medium text-zinc-300 hover:bg-zinc-800 disabled:opacity-40"
+                >
+                  {t("admin.catalog.prevPage")}
+                </button>
+                <span className="px-1 text-xs text-zinc-400">
+                  {t("admin.catalog.pageOf", { page, total: totalPages })}
+                </span>
+                <button
+                  type="button"
+                  disabled={page >= totalPages}
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  className="rounded-lg border border-zinc-700 px-3 py-1.5 text-xs font-medium text-zinc-300 hover:bg-zinc-800 disabled:opacity-40"
+                >
+                  {t("admin.catalog.nextPage")}
+                </button>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {editing && (
