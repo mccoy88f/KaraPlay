@@ -59,16 +59,17 @@ type MidiTrackOption = {
   instrumentName: string;
 };
 
+function formatMuteChannelNumber(channel: number): string {
+  return `Ch.${String(channel).padStart(2, "0")}`;
+}
+
 function formatMuteChannelLabel(t: MidiTrackOption): string {
+  const ch = formatMuteChannelNumber(t.channel);
   const name = t.name !== "(senza nome)" ? t.name : t.instrumentName;
-  return name ? `Ch.${t.channel} - ${name}` : `Ch.${t.channel}`;
+  return name ? `${ch} - ${name}` : ch;
 }
 
 function compareMuteChannels(a: MidiTrackOption, b: MidiTrackOption): number {
-  const nameA = a.name !== "(senza nome)" ? a.name : a.instrumentName;
-  const nameB = b.name !== "(senza nome)" ? b.name : b.instrumentName;
-  const byName = nameA.localeCompare(nameB, "it", { sensitivity: "base" });
-  if (byName !== 0) return byName;
   return a.channel - b.channel;
 }
 
@@ -681,7 +682,7 @@ export function LiveConsole({ authHeader, isSuper }: Props) {
                     <MidiLiveControls
                       song={performing.song}
                       authHeader={authHeader}
-                      muteTitle="Silenzia un canale MIDI (es. Ch.4 voce guida). Effetto sul display entro ~2 s anche senza WebSocket."
+                      muteTitle="Silenzia un canale MIDI (es. Ch.04 voce guida). Effetto sul display entro ~2 s anche senza WebSocket."
                       transposeTitle="Trasposizione in semitoni: ha effetto subito sul display, anche a brano in corso"
                       onMute={(track) => void setMutedTrack(performing.song!.id, track)}
                       onTranspose={(semitones) => void setTransposeSemitones(performing.song!.id, semitones)}
@@ -845,7 +846,7 @@ export function LiveConsole({ authHeader, isSuper }: Props) {
                         song={b.song}
                         className="shrink-0"
                         authHeader={authHeader}
-                        muteTitle="Silenzia un canale MIDI (es. Ch.4 voce guida)"
+                        muteTitle="Silenzia un canale MIDI (es. Ch.04 voce guida)"
                         transposeTitle="Trasposizione in semitoni per tutte le esecuzioni del brano"
                         onMute={(track) => void setMutedTrack(b.song!.id, track)}
                         onTranspose={(semitones) => void setTransposeSemitones(b.song!.id, semitones)}
