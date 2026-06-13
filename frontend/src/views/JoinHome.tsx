@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { BookCatalog } from "../components/BookCatalog";
 import { LiveTab } from "../components/join/LiveTab";
 import { LeaderboardTab } from "../components/join/LeaderboardTab";
 import { ProfileTab } from "../components/join/ProfileTab";
 import { getStoredEvent, getStoredNickname, getStoredToken } from "../api/client";
+import { reconcileGuestSession } from "../lib/authSession";
 
 type Tab = "live" | "book" | "leaderboard" | "profile";
 
@@ -16,10 +17,19 @@ const TABS: { id: Tab; label: string }[] = [
 ];
 
 export function JoinHome() {
-  const token = getStoredToken();
-  const event = getStoredEvent();
-  const nickname = getStoredNickname() ?? undefined;
+  const [sessionOk, setSessionOk] = useState(false);
   const [tab, setTab] = useState<Tab>("book");
+
+  useEffect(() => {
+    setSessionOk(reconcileGuestSession());
+    const onExpired = () => setSessionOk(false);
+    window.addEventListener("karaplay:session-expired", onExpired);
+    return () => window.removeEventListener("karaplay:session-expired", onExpired);
+  }, []);
+
+  const token = sessionOk ? getStoredToken() : null;
+  const event = sessionOk ? getStoredEvent() : null;
+  const nickname = sessionOk ? (getStoredNickname() ?? undefined) : undefined;
 
   return (
     <div className="kg-page-bg min-h-dvh">

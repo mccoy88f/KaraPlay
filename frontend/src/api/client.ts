@@ -71,8 +71,9 @@ export function setStoredToken(token: string | null) {
   else localStorage.removeItem(TOKEN_KEY);
 }
 
-export function setStoredEvent(event: JoinResponse["event"]) {
-  localStorage.setItem(EVENT_KEY, JSON.stringify(event));
+export function setStoredEvent(event: JoinResponse["event"] | null) {
+  if (event) localStorage.setItem(EVENT_KEY, JSON.stringify(event));
+  else localStorage.removeItem(EVENT_KEY);
 }
 
 export function getStoredEvent(): JoinResponse["event"] | null {
@@ -152,7 +153,7 @@ export async function apiSearchSongs(
 
 export async function apiBookMidi(eventId: string, songId: string): Promise<void> {
   const token = getStoredToken();
-  if (!token) throw new Error("Sessione scaduta: entra di nuovo");
+  if (!token) throw new Error("Sessione scaduta: entra di nuovo con PIN e nickname.");
   const res = await fetch(`${base}/api/events/${encodeURIComponent(eventId)}/bookings`, {
     method: "POST",
     headers: {
@@ -163,7 +164,14 @@ export async function apiBookMidi(eventId: string, songId: string): Promise<void
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    throw new Error((data as { error?: string }).error ?? "Prenotazione fallita");
+    const msg = (data as { error?: string }).error ?? "Prenotazione fallita";
+    if (res.status === 401 || res.status === 403) {
+      setStoredToken(null);
+      setStoredEvent(null);
+      setStoredNickname(null);
+      window.dispatchEvent(new Event("karaplay:session-expired"));
+    }
+    throw new Error(msg);
   }
 }
 
@@ -357,7 +365,7 @@ export async function apiSearchYoutube(
 
 export async function apiBookYoutube(eventId: string, ytUrl: string, ytTitle?: string): Promise<void> {
   const token = getStoredToken();
-  if (!token) throw new Error("Sessione scaduta: entra di nuovo");
+  if (!token) throw new Error("Sessione scaduta: entra di nuovo con PIN e nickname.");
   const res = await fetch(`${base}/api/events/${encodeURIComponent(eventId)}/bookings`, {
     method: "POST",
     headers: {
@@ -368,7 +376,14 @@ export async function apiBookYoutube(eventId: string, ytUrl: string, ytTitle?: s
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    throw new Error((data as { error?: string }).error ?? "Prenotazione fallita");
+    const msg = (data as { error?: string }).error ?? "Prenotazione fallita";
+    if (res.status === 401 || res.status === 403) {
+      setStoredToken(null);
+      setStoredEvent(null);
+      setStoredNickname(null);
+      window.dispatchEvent(new Event("karaplay:session-expired"));
+    }
+    throw new Error(msg);
   }
 }
 

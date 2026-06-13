@@ -82,7 +82,10 @@ export async function registerBookingRoutes(fastify: FastifyInstance): Promise<v
       const jwt = request.user as JwtPayload;
       const { eventId } = request.params;
       if (jwt.eventId !== eventId) {
-        return reply.code(403).send({ error: "Token non valido per questa serata" });
+        return reply.code(403).send({ error: "Sessione scaduta: esci e rientra con PIN e nickname." });
+      }
+      if (jwt.role !== "guest" && jwt.role !== "user") {
+        return reply.code(403).send({ error: "Sessione non valida per il pubblico: entra da /join con PIN." });
       }
 
       const event = await prisma.event.findUnique({ where: { id: eventId } });

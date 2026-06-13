@@ -38,7 +38,7 @@ function signGuestToken(
     eventId,
     role: "guest",
   };
-  return fastify.jwt.sign(payload);
+  return fastify.jwt.sign(payload, { expiresIn: "7d" });
 }
 
 function signUserToken(
@@ -53,7 +53,7 @@ function signUserToken(
     eventId,
     role: "user",
   };
-  return fastify.jwt.sign(payload);
+  return fastify.jwt.sign(payload, { expiresIn: "7d" });
 }
 
 export async function registerAuthRoutes(fastify: FastifyInstance): Promise<void> {
